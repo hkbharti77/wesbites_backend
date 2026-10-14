@@ -1,0 +1,25 @@
+{
+  "name": "gyanvaniai-admin-backend",
+  "version": "1.0.0",
+  "description": "Production-oriented Node.js & MongoDB backend for GyanVaniAi Admin Portal Foundation",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/scripts/seed.js",
+    "seed:cms": "node src/scripts/seedCms.js",
+    "test": "node tests/run-all-backend-tests.js",
+    "test:security": "node tests/security-verification.test.js",
+    "test:cms": "node tests/cms-lifecycle.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.11.0",
+    "cookie": "^0.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "mongodb": "^7.7.0"
+  }
+}
