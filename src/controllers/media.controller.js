@@ -11,21 +11,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.resolve(__dirname, '../../uploads/cms');
 
-// Cloudinary Configuration (Auto-detects credentials from env)
-function getCloudinaryClient() {
-  const cldUrl = process.env.CLOUDINARY_URL;
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'ivsmy3nx';
-  const apiKey = process.env.CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+const FALLBACK_CLOUDINARY_CLOUD_NAME = 'xx9f2zvj';
+const FALLBACK_CLOUDINARY_API_KEY = '952855927321894';
+const FALLBACK_CLOUDINARY_API_SECRET = 'lPBcxIFWUeAf6oo6wUUOkkOKArM';
+const FALLBACK_CLOUDINARY_URL = `cloudinary://${FALLBACK_CLOUDINARY_API_KEY}:${FALLBACK_CLOUDINARY_API_SECRET}@${FALLBACK_CLOUDINARY_CLOUD_NAME}`;
 
-  if (cldUrl && cldUrl.startsWith('cloudinary://')) {
-    try {
-      cloudinary.config(cldUrl);
-      return { ready: true, cloudName };
-    } catch (e) {
-      console.warn('Cloudinary URL config error:', e.message);
-    }
-  }
+// Cloudinary Configuration (Auto-detects credentials from env with verified fallback)
+function getCloudinaryClient() {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || FALLBACK_CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY || FALLBACK_CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET || FALLBACK_CLOUDINARY_API_SECRET;
+  const cldUrl = process.env.CLOUDINARY_URL || FALLBACK_CLOUDINARY_URL;
 
   if (cloudName && apiKey && apiSecret) {
     try {
@@ -38,6 +34,15 @@ function getCloudinaryClient() {
       return { ready: true, cloudName };
     } catch (e) {
       console.warn('Cloudinary credentials config error:', e.message);
+    }
+  }
+
+  if (cldUrl && cldUrl.startsWith('cloudinary://')) {
+    try {
+      cloudinary.config(cldUrl);
+      return { ready: true, cloudName };
+    } catch (e) {
+      console.warn('Cloudinary URL config error:', e.message);
     }
   }
 
@@ -205,6 +210,7 @@ export async function uploadMedia(req, res) {
     let finalUrl = '';
     let storageType = 'local';
     let cloudinaryPublicId = null;
+    let cloudinaryError = null;
 
     // Check Cloudinary client configuration
     const cld = getCloudinaryClient();
@@ -213,7 +219,7 @@ export async function uploadMedia(req, res) {
         const dataUri = `data:${mimeType};base64,${base64Data}`;
         const cleanPublicId = `${Date.now()}-${safeBase.toLowerCase()}`;
         const uploadResult = await cloudinary.uploader.upload(dataUri, {
-          folder: 'gyanvaniai/blog',
+          folder: 'gyanvaniai/cms',
           public_id: cleanPublicId,
           resource_type: mimeType === 'image/svg+xml' ? 'image' : 'auto',
           overwrite: true,
@@ -225,26 +231,47 @@ export async function uploadMedia(req, res) {
           cloudinaryPublicId = uploadResult.public_id;
         }
       } catch (cldErr) {
-        console.warn('Cloudinary upload warning, falling back to local storage:', cldErr.message);
+        cloudinaryError = cldErr;
+        console.error('Cloudinary upload warning:', cldErr.message);
       }
     }
 
     // Local Storage Fallback if Cloudinary not enabled or errored
     if (!finalUrl) {
-      const filePath = path.join(UPLOADS_DIR, safeFilename);
+      try {
+        await ensureUploadsDir();
+        const filePath = path.join(UPLOADS_DIR, safeFilename);
 
-      // Path Traversal Security Verification
-      if (!filePath.startsWith(UPLOADS_DIR)) {
-        return res.status(400).json({ error: 'Path traversal attempt detected and blocked.', code: 'INVALID_PATH' });
+        // Path Traversal Security Verification
+        if (!filePath.startsWith(UPLOADS_DIR)) {
+          return res.status(400).json({ error: 'Path traversal attempt detected and blocked.', code: 'INVALID_PATH' });
+        }
+
+        await fs.writeFile(filePath, buffer);
+        finalUrl = `/uploads/cms/${safeFilename}`;
+        storageType = 'local';
+      } catch (fsErr) {
+        console.error('Local filesystem storage failed:', fsErr);
+        const detailedMsg = cloudinaryError?.message
+          ? `Media upload failed: ${cloudinaryError.message}`
+          : 'Media upload failed: Cloud storage unavailable and server filesystem is read-only.';
+        return res.status(502).json({
+          error: detailedMsg,
+          code: 'STORAGE_UNAVAILABLE',
+          details: cloudinaryError?.message || fsErr.message,
+        });
       }
-
-      await fs.writeFile(filePath, buffer);
-      finalUrl = `/uploads/cms/${safeFilename}`;
-      storageType = 'local';
     }
 
     const db = getDb();
     const mediaCol = db.collection('cms_media');
+
+    const userId = req.user?.id;
+    const uploadedByDoc = {
+      id: (userId && ObjectId.isValid(userId)) ? new ObjectId(userId) : (userId || 'admin'),
+      name: req.user?.name || 'Administrator',
+      email: req.user?.email || 'admin@gyanvaniai.com',
+    };
 
     const mediaDoc = {
       filename: safeFilename,
@@ -255,23 +282,22 @@ export async function uploadMedia(req, res) {
       storage: storageType,
       cloudinaryPublicId,
       altText: altText.trim(),
-      uploadedBy: {
-        id: new ObjectId(req.user.id),
-        name: req.user.name,
-        email: req.user.email,
-      },
+      uploadedBy: uploadedByDoc,
       createdAt: new Date(),
     };
 
     const result = await mediaCol.insertOne(mediaDoc);
 
     await logAuditEvent({
-      req,
+      actorUserId: req.user?.id,
+      actorEmail: req.user?.email,
       action: 'MEDIA_UPLOADED',
       targetType: 'MEDIA',
       targetId: result.insertedId.toString(),
       targetName: safeFilename,
       metadata: { mimeType, size: buffer.length, url: finalUrl, storage: storageType },
+      ipAddress: req.ip || req.headers?.['x-forwarded-for'],
+      userAgent: req.headers?.['user-agent'],
     });
 
     return res.status(201).json({
@@ -283,7 +309,10 @@ export async function uploadMedia(req, res) {
     });
   } catch (err) {
     console.error('Upload Media Error:', err);
-    return res.status(500).json({ error: 'Failed to upload media.', code: 'SERVER_ERROR' });
+    return res.status(500).json({ 
+      error: err.message || 'Failed to upload media.', 
+      code: err.code || 'SERVER_ERROR' 
+    });
   }
 }
 
