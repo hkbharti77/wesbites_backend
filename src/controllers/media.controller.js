@@ -11,42 +11,39 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.resolve(__dirname, '../../uploads/cms');
 
-const FALLBACK_CLOUDINARY_CLOUD_NAME = 'xx9f2zvj';
-const FALLBACK_CLOUDINARY_API_KEY = '952855927321894';
-const FALLBACK_CLOUDINARY_API_SECRET = 'lPBcxIFWUeAf6oo6wUUOkkOKArM';
-const FALLBACK_CLOUDINARY_URL = `cloudinary://${FALLBACK_CLOUDINARY_API_KEY}:${FALLBACK_CLOUDINARY_API_SECRET}@${FALLBACK_CLOUDINARY_CLOUD_NAME}`;
+const VERIFIED_CLOUDINARY_CLOUD_NAME = 'xx9f2zvj';
+const VERIFIED_CLOUDINARY_API_KEY = '952855927321894';
+const VERIFIED_CLOUDINARY_API_SECRET = 'lPBcxIFWUeAf6oo6wUUOkkOKArM';
 
 // Cloudinary Configuration (Auto-detects credentials from env with verified fallback)
 function getCloudinaryClient() {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || FALLBACK_CLOUDINARY_CLOUD_NAME;
-  const apiKey = process.env.CLOUDINARY_API_KEY || FALLBACK_CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET || FALLBACK_CLOUDINARY_API_SECRET;
-  const cldUrl = process.env.CLOUDINARY_URL || FALLBACK_CLOUDINARY_URL;
+  let cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  let apiKey = process.env.CLOUDINARY_API_KEY;
+  let apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-  if (cloudName && apiKey && apiSecret) {
-    try {
-      cloudinary.config({
-        cloud_name: cloudName,
-        api_key: apiKey,
-        api_secret: apiSecret,
-        secure: true,
-      });
-      return { ready: true, cloudName };
-    } catch (e) {
-      console.warn('Cloudinary credentials config error:', e.message);
-    }
+  // Never use invalid or obsolete cloud name 'ivsmy3nx'
+  if (!cloudName || cloudName === 'ivsmy3nx') {
+    cloudName = VERIFIED_CLOUDINARY_CLOUD_NAME;
+  }
+  if (!apiKey || apiKey === 'your_api_key' || apiKey.includes('your_')) {
+    apiKey = VERIFIED_CLOUDINARY_API_KEY;
+  }
+  if (!apiSecret || apiSecret === 'your_api_secret' || apiSecret.includes('your_')) {
+    apiSecret = VERIFIED_CLOUDINARY_API_SECRET;
   }
 
-  if (cldUrl && cldUrl.startsWith('cloudinary://')) {
-    try {
-      cloudinary.config(cldUrl);
-      return { ready: true, cloudName };
-    } catch (e) {
-      console.warn('Cloudinary URL config error:', e.message);
-    }
+  try {
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true,
+    });
+    return { ready: true, cloudName };
+  } catch (e) {
+    console.error('Cloudinary config error:', e.message);
+    return { ready: false, cloudName };
   }
-
-  return { ready: false, cloudName };
 }
 
 // Ensure local upload directory exists
@@ -223,6 +220,7 @@ export async function uploadMedia(req, res) {
           public_id: cleanPublicId,
           resource_type: mimeType === 'image/svg+xml' ? 'image' : 'auto',
           overwrite: true,
+          timeout: 60000,
         });
 
         if (uploadResult && uploadResult.secure_url) {
@@ -232,7 +230,7 @@ export async function uploadMedia(req, res) {
         }
       } catch (cldErr) {
         cloudinaryError = cldErr;
-        console.error('Cloudinary upload warning:', cldErr.message);
+        console.error('Cloudinary upload warning:', cldErr.message, cldErr.http_code);
       }
     }
 
