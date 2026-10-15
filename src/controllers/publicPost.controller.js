@@ -14,7 +14,14 @@ export async function getPublicPosts(req, res) {
     const query = { status: 'published' };
 
     if (category && category !== 'All' && category !== 'all') {
-      query.$or = [{ category }, { 'category.name': category }];
+      const cleanCat = category.trim();
+      const catRegex = new RegExp(`^${cleanCat.replace(/[-_]/g, '[-_\\s]')}$`, 'i');
+      query.$or = [
+        { category: cleanCat },
+        { category: { $regex: catRegex } },
+        { 'category.name': cleanCat },
+        { 'category.slug': cleanCat.toLowerCase() },
+      ];
     }
 
     if (tag) {

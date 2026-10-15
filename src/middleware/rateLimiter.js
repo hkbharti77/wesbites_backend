@@ -140,6 +140,15 @@ export const authRateLimiter = new HybridRateLimiter(15 * 60 * 1000, 10);
 // 5 password reset requests per 15 minutes
 export const forgotPasswordRateLimiter = new HybridRateLimiter(15 * 60 * 1000, 5);
 
+// 5 newsletter subscriptions per 1 minute per IP
+export const newsletterRateLimiter = new HybridRateLimiter(60 * 1000, 10);
+
+// 30 unsubscribe/verify requests per 1 minute per IP
+export const unsubscribeRateLimiter = new HybridRateLimiter(60 * 1000, 30);
+
+// 5 lead/contact inquiries per 10 minutes per IP (enterprise-grade form abuse protection)
+export const leadContactRateLimiter = new HybridRateLimiter(10 * 60 * 1000, 5);
+
 export function createRateLimiterMiddleware(limiterInstance, getRateKey = (req) => req.ip) {
   return async (req, res, next) => {
     if (process.env.DISABLE_RATE_LIMIT === 'true') {
@@ -149,8 +158,9 @@ export function createRateLimiterMiddleware(limiterInstance, getRateKey = (req) 
     const key = getRateKey(req);
     const isLimited = await limiterInstance.isRateLimited(key);
     if (isLimited) {
+      const waitSeconds = Math.ceil(limiterInstance.windowMs / 1000);
       return res.status(429).json({
-        error: 'Too many requests. Please try again after 15 minutes.',
+        error: `Too many requests. Please try again after ${waitSeconds > 60 ? Math.ceil(waitSeconds / 60) + ' minutes' : waitSeconds + ' seconds'}.`,
         code: 'RATE_LIMIT_EXCEEDED',
       });
     }

@@ -133,6 +133,30 @@ async function initIndexes(database) {
     // 12. cms_media
     const mediaCol = database.collection('cms_media');
     await mediaCol.createIndex({ createdAt: -1 });
+
+    // 13. newsletter_subscribers
+    const subscribersCol = database.collection('newsletter_subscribers');
+    await subscribersCol.createIndex({ emailNormalized: 1 }, { unique: true });
+    await subscribersCol.createIndex({ unsubscribeTokenHash: 1 }, { unique: true, sparse: true });
+    await subscribersCol.createIndex({ status: 1, 'consent.recordedAt': -1 });
+    await subscribersCol.createIndex({ confirmationTokenHash: 1 }, { sparse: true });
+
+    // 14. contact_leads (enterprise-grade leads & inquiries)
+    const leadsCol = database.collection('contact_leads');
+    await leadsCol.createIndex({ emailNormalized: 1 });
+    await leadsCol.createIndex({ status: 1, createdAt: -1 });
+    await leadsCol.createIndex({ priority: 1, createdAt: -1 });
+    await leadsCol.createIndex({ dedupeHash: 1 }, { sparse: true });
+    await leadsCol.createIndex({ createdAt: -1 });
+
+    // 15. cms_landing_page
+    const landingPageCol = database.collection('cms_landing_page');
+    await landingPageCol.createIndex({ key: 1 }, { unique: true });
+
+    // 16. cms_landing_page_revisions
+    const lpRevisionsCol = database.collection('cms_landing_page_revisions');
+    await lpRevisionsCol.createIndex({ version: -1 });
+    await lpRevisionsCol.createIndex({ createdAt: -1 });
   } catch (indexErr) {
     // Non-fatal if index already exists
     console.warn('Index initialization notice:', indexErr.message);

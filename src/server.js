@@ -19,10 +19,17 @@ import categoryRoutes from './routes/category.routes.js';
 import mediaRoutes from './routes/media.routes.js';
 import publicPostRoutes from './routes/publicPost.routes.js';
 import cookieRoutes from './routes/cookie.routes.js';
+import newsletterRoutes from './routes/newsletter.routes.js';
+import subscriberRoutes from './routes/subscriber.routes.js';
+import contactRoutes from './routes/contact.routes.js';
+import leadRoutes from './routes/lead.routes.js';
+import landingPageRoutes from './routes/landingPage.routes.js';
+import publicLandingPageRoutes from './routes/publicLandingPage.routes.js';
 import { getPublicCategories, getPublicTags } from './controllers/publicPost.controller.js';
 import { getPublicTheme } from './controllers/settings.controller.js';
 
 dotenv.config();
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,22 +37,51 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Allowed CORS origins
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174,http://localhost:3000')
-  .split(',')
-  .map(o => o.trim());
+// Dynamic CORS Origins strictly governed by process.env.CORS_ORIGIN
+export function parseAllowedOrigins() {
+  const envOrigins = process.env.CORS_ORIGIN;
+  if (!envOrigins) {
+    return [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174',
+      'http://127.0.0.1:3000',
+    ];
+  }
+  return envOrigins
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. mobile apps, curl, server-to-server) or allowed origins
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow non-browser requests (e.g. curl, server-to-server, health check, cron jobs)
+    if (!origin) {
       return callback(null, true);
     }
-    return callback(null, true); // Permissive in development for multi-port testing
+
+    const allowed = parseAllowedOrigins();
+    const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+
+    // Allow wildcard or explicit match configured in environment
+    if (allowed.includes('*') || allowed.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS Blocked] Origin "${origin}" rejected. Allowed origins in CORS_ORIGIN:`, allowed);
+    const err = new Error(`Origin "${origin}" is not allowed by CORS_ORIGIN policy.`);
+    err.statusCode = 403;
+    err.code = 'CORS_NOT_ALLOWED';
+    return callback(err);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+  exposedHeaders: ['X-CSRF-Token'],
+  optionsSuccessStatus: 200,
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -77,6 +113,7 @@ app.use('/api/admin/audit', auditRoutes);
 app.use('/api/admin/settings', settingsRoutes);
 
 // Admin CMS endpoints
+app.use('/api/admin/landing-page', landingPageRoutes);
 app.use('/api/admin/posts', cmsPostRoutes);
 app.use('/api/admin/categories', categoryRoutes);
 app.use('/api/admin/media', mediaRoutes);
@@ -85,7 +122,16 @@ app.use('/api/admin/media', mediaRoutes);
 app.use('/api/public/cookie-consent', cookieRoutes);
 app.use('/api/admin/cookies', cookieRoutes);
 
+// Newsletter & Subscribers (public subscribe/unsubscribe + admin management)
+app.use('/api/public/newsletter', newsletterRoutes);
+app.use('/api/admin/subscribers', subscriberRoutes);
+
+// Contact & Lead Management (public contact ingestion + admin lead management)
+app.use('/api/public/contact', contactRoutes);
+app.use('/api/admin/leads', leadRoutes);
+
 // Public Read-Only APIs (zero authentication required)
+app.use('/api/public/landing-page', publicLandingPageRoutes);
 app.use('/api/public/posts', publicPostRoutes);
 app.get('/api/public/categories', getPublicCategories);
 app.get('/api/public/tags', getPublicTags);
@@ -115,6 +161,7 @@ export async function startServer(customPort = PORT) {
   return new Promise((resolve) => {
     const server = app.listen(customPort, () => {
       console.log(`🚀 GyanVaniAi Admin Backend running on port ${customPort}`);
+      console.log(`🔒 CORS Origin Policy: Controlled by CORS_ORIGIN -> ${parseAllowedOrigins().join(', ')}`);
       resolve(server);
     });
   });

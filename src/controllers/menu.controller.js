@@ -18,6 +18,9 @@ export const APPROVED_ROUTES = new Set([
   '/admin/blog/analytics',
   '/admin/blog/seo',
   '/admin/cookies',
+  '/admin/subscribers',
+  '/admin/leads',
+  '/admin/website-theme',
   '/admin/403',
 ]);
 

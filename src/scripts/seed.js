@@ -51,6 +51,23 @@ const SYSTEM_PERMISSIONS = [
   { key: 'seo.read', resource: 'seo', action: 'read', description: 'View search ranking metrics and content refresh opportunities' },
   { key: 'cookies.read', resource: 'cookies', action: 'read', description: 'Inspect GDPR/DPDP cookie consent statistics' },
   { key: 'cookies.manage', resource: 'cookies', action: 'manage', description: 'Configure cookie banners and compliance rules' },
+
+  // Newsletter & Subscribers
+  { key: 'subscribers.read', resource: 'subscribers', action: 'read', description: 'View newsletter subscribers list and metrics' },
+  { key: 'subscribers.manage', resource: 'subscribers', action: 'manage', description: 'Update subscriber status, resubscribe or toggle' },
+  { key: 'subscribers.export', resource: 'subscribers', action: 'export', description: 'Export subscriber lists to secure CSV' },
+  { key: 'subscribers.delete', resource: 'subscribers', action: 'delete', description: 'Permanently erase subscriber record (GDPR Art. 17)' },
+
+  // Leads & Customer Inquiries
+  { key: 'leads.read', resource: 'leads', action: 'read', description: 'View CRM leads and customer inquiries' },
+  { key: 'leads.manage', resource: 'leads', action: 'manage', description: 'Update lead status, priority, and staff notes' },
+  { key: 'leads.export', resource: 'leads', action: 'export', description: 'Export customer leads to secure CSV' },
+  { key: 'leads.delete', resource: 'leads', action: 'delete', description: 'Permanently remove lead records (GDPR/DPDP erasure)' },
+
+  // Dynamic Landing Page CMS
+  { key: 'landing_page.read', resource: 'landing_page', action: 'read', description: 'View landing page builder, sections, drafts and revisions' },
+  { key: 'landing_page.update', resource: 'landing_page', action: 'update', description: 'Edit and save landing page section drafts' },
+  { key: 'landing_page.publish', resource: 'landing_page', action: 'publish', description: 'Publish landing page changes live or rollback versions' },
 ];
 
 export async function seedDatabase() {
@@ -102,6 +119,9 @@ export async function seedDatabase() {
         'media.read',
         'media.upload',
         'analytics.read',
+        'landing_page.read',
+        'landing_page.update',
+        'landing_page.publish',
       ],
       isSystemRole: true,
     },
@@ -116,6 +136,9 @@ export async function seedDatabase() {
         'seo.read',
         'posts.read',
         'cookies.read',
+        'subscribers.read',
+        'subscribers.manage',
+        'subscribers.export',
       ],
       isSystemRole: true,
     },
@@ -127,6 +150,10 @@ export async function seedDatabase() {
         'dashboard.read',
         'menus.read',
         'analytics.read',
+        'subscribers.read',
+        'leads.read',
+        'leads.manage',
+        'leads.export',
       ],
       isSystemRole: true,
     },
@@ -148,6 +175,7 @@ export async function seedDatabase() {
         'analytics.read',
         'seo.read',
         'cookies.read',
+        'subscribers.read',
       ],
       isSystemRole: true,
     },
@@ -186,12 +214,15 @@ export async function seedDatabase() {
     { label: 'Security Audit Logs', icon: 'FileText', routeKey: '/admin/audit-logs', requiredPermission: 'audit.read', sortOrder: 60 },
     { label: 'System Settings', icon: 'Settings', routeKey: '/admin/settings', requiredPermission: 'settings.read', sortOrder: 70 },
     // CMS Modules
+    { label: 'Landing Page Builder', icon: 'Layers', routeKey: '/admin/landing-page', requiredPermission: 'landing_page.read', sortOrder: 75 },
     { label: 'Articles Manager', icon: 'FileEdit', routeKey: '/admin/blog-manager', requiredPermission: 'posts.read', sortOrder: 80 },
     { label: 'Create New Article', icon: 'PenTool', routeKey: '/admin/create', requiredPermission: 'posts.create', sortOrder: 90 },
     { label: 'Media Library', icon: 'Image', routeKey: '/admin/media', requiredPermission: 'media.read', sortOrder: 100 },
     { label: 'Traffic Analytics', icon: 'BarChart3', routeKey: '/admin/blog/analytics', requiredPermission: 'analytics.read', sortOrder: 110 },
     { label: 'SEO Intelligence', icon: 'TrendingUp', routeKey: '/admin/blog/seo', requiredPermission: 'seo.read', sortOrder: 120 },
     { label: 'Cookie Consents', icon: 'ShieldCheck', routeKey: '/admin/cookies', requiredPermission: 'cookies.read', sortOrder: 130 },
+    { label: 'Leads & Inquiries', icon: 'Inbox', routeKey: '/admin/leads', requiredPermission: 'leads.read', sortOrder: 131 },
+    { label: 'Newsletter Subscribers', icon: 'Mail', routeKey: '/admin/subscribers', requiredPermission: 'subscribers.read', sortOrder: 132 },
     { label: 'Website Themes', icon: 'Palette', routeKey: '/admin/website-theme', requiredPermission: 'settings.read', sortOrder: 135 },
   ];
 

@@ -12,6 +12,7 @@ const router = Router();
 
 // ── Public endpoint — no auth needed (called by browser on consent click) ──
 router.post('/record', recordConsent);
+router.post('/',       recordConsent);
 
 // ── Admin endpoints ─────────────────────────────────────────────────────────
 router.use(authenticateAdmin);
