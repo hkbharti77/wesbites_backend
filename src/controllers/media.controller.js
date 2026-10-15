@@ -305,9 +305,9 @@ export async function uploadMedia(req, res) {
     });
   } catch (err) {
     console.error('Upload Media Error:', err);
-    return res.status(500).json({ 
-      error: err.message || 'Failed to upload media.', 
-      code: err.code || 'SERVER_ERROR' 
+    return res.status(500).json({
+      error: err.message || 'Failed to upload media.',
+      code: err.code || 'SERVER_ERROR'
     });
   }
 }
