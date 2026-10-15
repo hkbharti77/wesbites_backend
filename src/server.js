@@ -93,6 +93,17 @@ app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 // CSRF double-submit protection
 app.use(csrfMiddleware);
 
+// Ensure MongoDB database is connected on serverless requests (e.g. Vercel)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('Database connection error in request middleware:', err.message);
+    next(err);
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({
