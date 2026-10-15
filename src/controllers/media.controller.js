@@ -11,39 +11,37 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.resolve(__dirname, '../../uploads/cms');
 
-const VERIFIED_CLOUDINARY_CLOUD_NAME = 'xx9f2zvj';
-const VERIFIED_CLOUDINARY_API_KEY = '952855927321894';
-const VERIFIED_CLOUDINARY_API_SECRET = 'lPBcxIFWUeAf6oo6wUUOkkOKArM';
-
-// Cloudinary Configuration (Auto-detects credentials from env with verified fallback)
+// Cloudinary Configuration (Strictly loaded from environment variables)
 function getCloudinaryClient() {
-  let cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  let apiKey = process.env.CLOUDINARY_API_KEY;
-  let apiSecret = process.env.CLOUDINARY_API_SECRET;
+  const cldUrl = process.env.CLOUDINARY_URL;
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-  // Never use invalid or obsolete cloud name 'ivsmy3nx'
-  if (!cloudName || cloudName === 'ivsmy3nx') {
-    cloudName = VERIFIED_CLOUDINARY_CLOUD_NAME;
-  }
-  if (!apiKey || apiKey === 'your_api_key' || apiKey.includes('your_')) {
-    apiKey = VERIFIED_CLOUDINARY_API_KEY;
-  }
-  if (!apiSecret || apiSecret === 'your_api_secret' || apiSecret.includes('your_')) {
-    apiSecret = VERIFIED_CLOUDINARY_API_SECRET;
+  if (cldUrl && cldUrl.startsWith('cloudinary://')) {
+    try {
+      cloudinary.config(cldUrl);
+      return { ready: true, cloudName: cloudName || 'env_configured' };
+    } catch (e) {
+      console.warn('Cloudinary URL config error:', e.message);
+    }
   }
 
-  try {
-    cloudinary.config({
-      cloud_name: cloudName,
-      api_key: apiKey,
-      api_secret: apiSecret,
-      secure: true,
-    });
-    return { ready: true, cloudName };
-  } catch (e) {
-    console.error('Cloudinary config error:', e.message);
-    return { ready: false, cloudName };
+  if (cloudName && apiKey && apiSecret) {
+    try {
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+        secure: true,
+      });
+      return { ready: true, cloudName };
+    } catch (e) {
+      console.warn('Cloudinary credentials config error:', e.message);
+    }
   }
+
+  return { ready: false, cloudName: null };
 }
 
 // Ensure local upload directory exists
@@ -252,7 +250,7 @@ export async function uploadMedia(req, res) {
         console.error('Local filesystem storage failed:', fsErr);
         const detailedMsg = cloudinaryError?.message
           ? `Media upload failed: ${cloudinaryError.message}`
-          : 'Media upload failed: Cloud storage unavailable and server filesystem is read-only.';
+          : 'Media upload failed: Cloudinary environment variables (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) are missing or invalid in server environment.';
         return res.status(502).json({
           error: detailedMsg,
           code: 'STORAGE_UNAVAILABLE',
