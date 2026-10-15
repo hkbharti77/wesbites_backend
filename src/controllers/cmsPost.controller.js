@@ -76,6 +76,7 @@ export async function getPosts(req, res) {
         status: p.status,
         isFeatured: Boolean(p.isFeatured),
         featuredImage: p.featuredImage || null,
+        imageUrl: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
         readingTimeMinutes: p.readingTimeMinutes || 1,
         version: p.version || 1,
         publishedAt: p.publishedAt || null,
@@ -134,6 +135,7 @@ export async function getPostById(req, res) {
         status: post.status,
         isFeatured: Boolean(post.isFeatured),
         featuredImage: post.featuredImage || null,
+        imageUrl: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
         seo: post.seo || {},
         aeo: post.aeo || {},
         editorialReview: post.editorialReview || {},
@@ -374,6 +376,7 @@ export async function updatePost(req, res) {
       status: status !== undefined ? status : existingPost.status,
       isFeatured: isFeatured !== undefined ? Boolean(isFeatured) : existingPost.isFeatured,
       featuredImage: featuredImage !== undefined ? featuredImage : existingPost.featuredImage,
+      imageUrl: (typeof featuredImage === 'string' ? featuredImage : featuredImage?.url) || (typeof existingPost.featuredImage === 'string' ? existingPost.featuredImage : existingPost.featuredImage?.url) || existingPost.imageUrl,
       seo: seo !== undefined ? seo : existingPost.seo,
       aeo: aeo !== undefined ? {
         directQuestion: aeo.directQuestion !== undefined ? aeo.directQuestion : (existingPost.aeo?.directQuestion || ''),
