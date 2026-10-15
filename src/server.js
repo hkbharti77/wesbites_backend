@@ -37,23 +37,30 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Dynamic CORS Origins strictly governed by process.env.CORS_ORIGIN
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://www.gyanvaniai.com',
+  'https://gyanvaniai.com',
+  'https://www.gyanvaniai.info',
+  'https://gyanvaniai.info',
+  'https://admin.gyanvaniai.info',
+  'https://admin.gyanvaniai.com',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'http://localhost:8080',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:8080',
+];
+
+// Dynamic CORS Origins governed by process.env.CORS_ORIGIN with enterprise domain defaults
 export function parseAllowedOrigins() {
   const envOrigins = process.env.CORS_ORIGIN;
-  if (!envOrigins) {
-    return [
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:3000',
-      'http://127.0.0.1:5173',
-      'http://127.0.0.1:5174',
-      'http://127.0.0.1:3000',
-    ];
-  }
-  return envOrigins
-    .split(',')
-    .map((o) => o.trim().replace(/\/+$/, ''))
-    .filter(Boolean);
+  const configured = envOrigins
+    ? envOrigins.split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean)
+    : [];
+  return Array.from(new Set([...DEFAULT_ALLOWED_ORIGINS, ...configured]));
 }
 
 app.use(cors({
@@ -66,8 +73,14 @@ app.use(cors({
     const allowed = parseAllowedOrigins();
     const normalizedOrigin = origin.trim().replace(/\/+$/, '');
 
-    // Allow wildcard or explicit match configured in environment
-    if (allowed.includes('*') || allowed.includes(normalizedOrigin)) {
+    // Allow wildcard, explicit match, any gyanvaniai domain/subdomain, or Vercel preview deployment
+    const isAllowed = 
+      allowed.includes('*') ||
+      allowed.includes(normalizedOrigin) ||
+      /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*gyanvaniai\.(?:com|info)(?::\d+)?$/i.test(normalizedOrigin) ||
+      /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/i.test(normalizedOrigin);
+
+    if (isAllowed) {
       return callback(null, true);
     }
 
