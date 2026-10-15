@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "build": "echo 'Build ready for Vercel deployment'",
-    "vercel-build": "node src/scripts/seed.js && node src/scripts/seedCms.js",
+    "build": "node -e \"const fs=require('fs'); if(!fs.existsSync('public')) fs.mkdirSync('public');\"",
+    "vercel-build": "node src/scripts/seed.js && node src/scripts/seedCms.js && node -e \"const fs=require('fs'); if(!fs.existsSync('public')) fs.mkdirSync('public');\"",
     "seed": "node src/scripts/seed.js",
     "seed:cms": "node src/scripts/seedCms.js",
     "test": "node tests/run-all-backend-tests.js",
