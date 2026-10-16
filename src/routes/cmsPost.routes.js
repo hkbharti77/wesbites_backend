@@ -11,6 +11,7 @@ import {
   rollbackRevision,
   getPreviewToken,
   getAnalytics,
+  pingPostIndexNow,
 } from '../controllers/cmsPost.controller.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
@@ -39,5 +40,7 @@ router.post('/:id/revisions/:version/rollback', requirePermission('posts.update'
 // Preview token generation
 router.get('/:id/preview-token', requirePermission('posts.read'), getPreviewToken);
 
+// Instant IndexNow Search Engine Ping
+router.post('/:id/ping-indexnow', requirePermission('posts.update'), pingPostIndexNow);
 
 export default router;

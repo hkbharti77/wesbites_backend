@@ -1,6 +1,11 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../db/connection.js';
 import { verifyPreviewToken } from '../utils/slugify.js';
+import {
+  generateBlogSitemapXml,
+  generateBlogRssXml,
+  buildPostCompleteSchema,
+} from '../services/seoEngine.service.js';
 
 export async function getPublicPosts(req, res) {
   try {
@@ -154,9 +159,11 @@ export async function getPublicPostBySlug(req, res) {
         ogImageUrl: post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp',
         seo: post.seo || {},
         aeo: post.aeo || {},
+        geo: post.geo || {},
         aeoDirectQuestion: post.aeo?.directQuestion || `What is ${post.title}?`,
         aeoDirectAnswer: post.aeo?.directAnswer || post.excerpt,
         aeoKeyTakeaways: post.aeo?.keyTakeaways || [],
+        schemas: buildPostCompleteSchema(post),
         readingTimeMinutes: post.readingTimeMinutes || 1,
         prevPost: olderPost[0] ? { slug: olderPost[0].slug, title: olderPost[0].title } : null,
         nextPost: newerPost[0] ? { slug: newerPost[0].slug, title: newerPost[0].title } : null,
@@ -165,6 +172,66 @@ export async function getPublicPostBySlug(req, res) {
   } catch (err) {
     console.error('Public Get Post By Slug Error:', err);
     return res.status(500).json({ error: 'Failed to retrieve article.', code: 'SERVER_ERROR' });
+  }
+}
+
+/**
+ * Public XML Sitemap Endpoint (Dynamic MongoDB-backed)
+ */
+export async function getBlogSitemapXmlEndpoint(req, res) {
+  try {
+    const xml = await generateBlogSitemapXml();
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=7200'); // Cache for 1-2 hours
+    return res.status(200).send(xml);
+  } catch (err) {
+    console.error('Sitemap Generation Error:', err);
+    return res.status(500).send('<!-- Failed to generate sitemap -->');
+  }
+}
+
+/**
+ * Public RSS 2.0 Feed Endpoint (for AI engines & feed aggregators)
+ */
+export async function getBlogRssXmlEndpoint(req, res) {
+  try {
+    const rss = await generateBlogRssXml();
+    res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=1800, s-maxage=3600');
+    return res.status(200).send(rss);
+  } catch (err) {
+    console.error('RSS Generation Error:', err);
+    return res.status(500).send('<!-- Failed to generate RSS feed -->');
+  }
+}
+
+/**
+ * Public Post JSON-LD Schema Endpoint
+ */
+export async function getPostSchemaEndpoint(req, res) {
+  try {
+    const { slugOrId } = req.params;
+    const db = getDb();
+    const postsCol = db.collection('cms_posts');
+
+    const query = {
+      status: 'published',
+      $or: [{ slug: slugOrId }],
+    };
+    if (ObjectId.isValid(slugOrId)) {
+      query.$or.push({ _id: new ObjectId(slugOrId) });
+    }
+
+    const post = await postsCol.findOne(query);
+    if (!post) {
+      return res.status(404).json({ error: 'Article schema not found' });
+    }
+
+    const schemas = buildPostCompleteSchema(post);
+    return res.status(200).json(schemas);
+  } catch (err) {
+    console.error('Schema Endpoint Error:', err);
+    return res.status(500).json({ error: 'Failed to generate schema' });
   }
 }
 

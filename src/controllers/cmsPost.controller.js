@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../db/connection.js';
 import { logAuditEvent } from '../services/audit.service.js';
 import { slugify, calculateReadingTime, generatePreviewToken } from '../utils/slugify.js';
+import { pingIndexNowUrls } from '../services/seoEngine.service.js';
 
 // Helper: Ensure unique slug
 async function generateUniqueSlug(postsCol, baseText, excludeId = null) {
@@ -170,6 +171,7 @@ export async function createPost(req, res) {
       featuredImage = null,
       seo = {},
       aeo = {},
+      geo = {},
       editorialReview = {},
       changeSummary = 'Initial creation',
     } = req.body || {};
@@ -248,6 +250,13 @@ export async function createPost(req, res) {
           : (typeof aeo.keyTakeaways === 'string'
               ? aeo.keyTakeaways.split(',').map(s => s.trim()).filter(Boolean)
               : []),
+      },
+      geo: {
+        targetCountry: geo.targetCountry || 'Global',
+        targetCity: geo.targetCity || '',
+        language: geo.language || 'en-US',
+        latitude: geo.latitude || null,
+        longitude: geo.longitude || null,
       },
       editorialReview: {
         status: editorialReview.status || 'none',
@@ -330,6 +339,7 @@ export async function updatePost(req, res) {
       featuredImage,
       seo,
       aeo,
+      geo,
       editorialReview,
       changeSummary = 'Updated article details',
     } = req.body || {};
@@ -387,6 +397,13 @@ export async function updatePost(req, res) {
               ? aeo.keyTakeaways.split(',').map(s => s.trim()).filter(Boolean)
               : (existingPost.aeo?.keyTakeaways || [])),
       } : (existingPost.aeo || {}),
+      geo: geo !== undefined ? {
+        targetCountry: geo.targetCountry || existingPost.geo?.targetCountry || 'Global',
+        targetCity: geo.targetCity !== undefined ? geo.targetCity : (existingPost.geo?.targetCity || ''),
+        language: geo.language || existingPost.geo?.language || 'en-US',
+        latitude: geo.latitude !== undefined ? geo.latitude : (existingPost.geo?.latitude || null),
+        longitude: geo.longitude !== undefined ? geo.longitude : (existingPost.geo?.longitude || null),
+      } : (existingPost.geo || {}),
       editorialReview: editorialReview !== undefined ? {
         status: editorialReview.status || existingPost.editorialReview?.status || 'none',
         notes: editorialReview.notes !== undefined ? editorialReview.notes : (existingPost.editorialReview?.notes || ''),
@@ -408,6 +425,15 @@ export async function updatePost(req, res) {
     }
 
     await postsCol.updateOne({ _id: new ObjectId(id) }, { $set: updateDoc });
+
+    // Server-side IndexNow notification on published articles
+    if (updateDoc.status === 'published' && finalSlug) {
+      pingIndexNowUrls([
+        `https://www.gyanvaniai.com/blog/${finalSlug}`,
+        'https://www.gyanvaniai.com/blog',
+        'https://www.gyanvaniai.com/rss.xml',
+      ]).catch(() => {});
+    }
 
     // Create new revision snapshot
     const revisionRecord = {
@@ -501,6 +527,15 @@ export async function publishPost(req, res) {
       metadata: { slug: post.slug, version: nextVersion },
     });
 
+    // Server-side IndexNow ping to Bing, Yandex, Seznam
+    if (post.slug) {
+      pingIndexNowUrls([
+        `https://www.gyanvaniai.com/blog/${post.slug}`,
+        'https://www.gyanvaniai.com/blog',
+        'https://www.gyanvaniai.com/rss.xml',
+      ]).catch(() => {});
+    }
+
     return res.status(200).json({
       message: 'Post published successfully to the live website.',
       status: 'published',
@@ -510,6 +545,41 @@ export async function publishPost(req, res) {
   } catch (err) {
     console.error('Publish Post Error:', err);
     return res.status(500).json({ error: 'Failed to publish post.', code: 'SERVER_ERROR' });
+  }
+}
+
+/**
+ * Manual IndexNow Ping for an Article
+ */
+export async function pingPostIndexNow(req, res) {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid post ID.', code: 'INVALID_ID' });
+    }
+
+    const db = getDb();
+    const postsCol = db.collection('cms_posts');
+    const post = await postsCol.findOne({ _id: new ObjectId(id) });
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found.', code: 'NOT_FOUND' });
+    }
+
+    const slug = post.slug || '';
+    const urls = [
+      `https://www.gyanvaniai.com/blog/${slug}`,
+      'https://www.gyanvaniai.com/blog',
+      'https://www.gyanvaniai.com/rss.xml',
+    ];
+
+    const pingResult = await pingIndexNowUrls(urls);
+    return res.status(200).json({
+      message: 'IndexNow search engines (Bing, Yandex, Seznam) notified successfully!',
+      result: pingResult,
+    });
+  } catch (err) {
+    console.error('Manual IndexNow Ping Error:', err);
+    return res.status(500).json({ error: 'Failed to send IndexNow ping.', code: 'SERVER_ERROR' });
   }
 }
 

@@ -25,7 +25,7 @@ import contactRoutes from './routes/contact.routes.js';
 import leadRoutes from './routes/lead.routes.js';
 import landingPageRoutes from './routes/landingPage.routes.js';
 import publicLandingPageRoutes from './routes/publicLandingPage.routes.js';
-import { getPublicCategories, getPublicTags } from './controllers/publicPost.controller.js';
+import { getPublicCategories, getPublicTags, getBlogSitemapXmlEndpoint, getBlogRssXmlEndpoint } from './controllers/publicPost.controller.js';
 import { getPublicTheme } from './controllers/settings.controller.js';
 
 dotenv.config();
@@ -153,6 +153,10 @@ app.use('/api/admin/subscribers', subscriberRoutes);
 // Contact & Lead Management (public contact ingestion + admin lead management)
 app.use('/api/public/contact', contactRoutes);
 app.use('/api/admin/leads', leadRoutes);
+
+// Public XML Sitemaps & RSS Feeds (Dynamic MongoDB-backed for Search & AI Crawlers)
+app.get(['/blog-sitemap.xml', '/sitemap.xml'], getBlogSitemapXmlEndpoint);
+app.get(['/rss.xml', '/feed.xml'], getBlogRssXmlEndpoint);
 
 // Public Read-Only APIs (zero authentication required)
 app.use('/api/public/landing-page', publicLandingPageRoutes);
