@@ -27,6 +27,7 @@ import landingPageRoutes from './routes/landingPage.routes.js';
 import publicLandingPageRoutes from './routes/publicLandingPage.routes.js';
 import { getPublicCategories, getPublicTags, getBlogSitemapXmlEndpoint, getBlogRssXmlEndpoint } from './controllers/publicPost.controller.js';
 import { getPublicTheme } from './controllers/settings.controller.js';
+import { publicSiteMediaRoutes, adminSiteMediaRoutes } from './routes/siteMedia.routes.js';
 
 dotenv.config();
 
@@ -46,12 +47,15 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'https://admin.gyanvaniai.com',
   'http://localhost:5173',
   'http://localhost:5174',
+  'http://localhost:5175',
   'http://localhost:3000',
   'http://localhost:8080',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:8080',
+  'https://hkbharti77.github.io',
 ];
 
 // Dynamic CORS Origins governed by process.env.CORS_ORIGIN with enterprise domain defaults
@@ -97,8 +101,8 @@ app.use(cors({
   optionsSuccessStatus: 200,
 }));
 
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static file serving for uploads
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
@@ -140,6 +144,7 @@ app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/admin/landing-page', landingPageRoutes);
 app.use('/api/admin/posts', cmsPostRoutes);
 app.use('/api/admin/categories', categoryRoutes);
+app.use('/api/admin/media/portfolio', adminSiteMediaRoutes);
 app.use('/api/admin/media', mediaRoutes);
 
 // Cookie Consent (public record + admin management)
@@ -160,6 +165,7 @@ app.get(['/rss.xml', '/feed.xml'], getBlogRssXmlEndpoint);
 
 // Public Read-Only APIs (zero authentication required)
 app.use('/api/public/landing-page', publicLandingPageRoutes);
+app.use('/api/public/media', publicSiteMediaRoutes);
 app.use('/api/public/posts', publicPostRoutes);
 app.get('/api/public/categories', getPublicCategories);
 app.get('/api/public/tags', getPublicTags);

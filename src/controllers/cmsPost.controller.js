@@ -26,31 +26,69 @@ async function generateUniqueSlug(postsCol, baseText, excludeId = null) {
   }
 }
 
+// Helper: Normalize body content to ensure no accidental H1 tags or masking styles exist
+export function sanitizeArticleContent(html) {
+  if (!html || typeof html !== 'string') return '';
+  let sanitized = html.replace(/<h1\b([^>]*)>([\s\S]*?)<\/h1>/gi, (match, attrs, content) => {
+    const text = content.replace(/<[^>]*>/g, '').trim();
+    if (text.length > 100 || text.includes('. ') || text.includes('.\n')) {
+      return `<p>${content}</p>`;
+    }
+    return `<h2>${content}</h2>`;
+  });
+  sanitized = sanitized.replace(/(<span\b[^>]*)style="([^"]*)"([^>]*>)/gi, (match, prefix, style, suffix) => {
+    const cleanedStyle = style
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s && !/^font-(?:size|family|weight)\s*:/i.test(s))
+      .join('; ');
+    return cleanedStyle ? `${prefix}style="${cleanedStyle}"${suffix}` : `${prefix}${suffix}`;
+  });
+  return sanitized;
+}
+
 export async function getPosts(req, res) {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
 
-    const { status, category, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    const { status, category, search, channel, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
-    const query = {};
+    const andConditions = [];
     if (status && status !== 'all') {
-      query.status = status;
+      andConditions.push({ status });
     }
     if (category && category !== 'all') {
-      query.category = category;
+      andConditions.push({ category });
+    }
+    if (channel && channel !== 'all') {
+      if (req.query.exact === 'true') {
+        andConditions.push({ channel });
+      } else {
+        andConditions.push({
+          $or: [
+            { channel: channel },
+            { channel: 'all' },
+          ],
+        });
+      }
+    } else if (channel === 'all' && req.query.exact === 'true') {
+      andConditions.push({ channel: 'all' });
     }
     if (search && search.trim()) {
       const term = search.trim();
-      query.$or = [
-        { title: { $regex: term, $options: 'i' } },
-        { excerpt: { $regex: term, $options: 'i' } },
-        { slug: { $regex: term, $options: 'i' } },
-        { tags: { $regex: term, $options: 'i' } },
-      ];
+      andConditions.push({
+        $or: [
+          { title: { $regex: term, $options: 'i' } },
+          { excerpt: { $regex: term, $options: 'i' } },
+          { slug: { $regex: term, $options: 'i' } },
+          { tags: { $regex: term, $options: 'i' } },
+        ],
+      });
     }
 
+    const query = andConditions.length > 0 ? { $and: andConditions } : {};
     const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
     const db = getDb();
@@ -72,13 +110,20 @@ export async function getPosts(req, res) {
         title: p.title,
         excerpt: p.excerpt,
         category: p.category,
+        channel: p.channel || 'all',
         tags: p.tags || [],
+        tag: p.tags?.[0] || p.tag || p.category || '',
         author: p.author || { name: 'Admin Team' },
         status: p.status,
+        published: p.status === 'published',
         isFeatured: Boolean(p.isFeatured),
         featuredImage: p.featuredImage || null,
         imageUrl: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
-        readingTimeMinutes: p.readingTimeMinutes || 1,
+        coverImage: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
+        pdfUrl: p.pdf?.url || p.pdfUrl || '',
+        pdfName: p.pdf?.name || p.pdfName || '',
+        readingTimeMinutes: p.readingTimeMinutes || p.readingTime || 1,
+        readTime: `${p.readingTimeMinutes || p.readingTime || 1} min`,
         version: p.version || 1,
         publishedAt: p.publishedAt || null,
         createdAt: p.createdAt,
@@ -131,16 +176,30 @@ export async function getPostById(req, res) {
         content: post.content,
         category: post.category,
         categoryId: post.categoryId ? post.categoryId.toString() : null,
+        channel: post.channel || 'all',
         tags: post.tags || [],
+        tag: post.tags?.[0] || post.tag || post.category || '',
         author: post.author,
         status: post.status,
+        published: post.status === 'published',
         isFeatured: Boolean(post.isFeatured),
         featuredImage: post.featuredImage || null,
         imageUrl: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
+        coverImage: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
+        coverImageAlt: post.featuredImage?.alt || '',
+        pdfUrl: post.pdf?.url || post.pdfUrl || '',
+        pdfName: post.pdf?.name || post.pdfName || '',
         seo: post.seo || {},
+        seoTitle: post.seo?.metaTitle || post.title,
+        seoDescription: post.seo?.metaDescription || post.excerpt,
+        seoKeywords: Array.isArray(post.seo?.keywords) ? post.seo.keywords.join(', ') : (post.seo?.keywords || ''),
+        canonicalUrl: post.seo?.canonicalUrl || '',
+        ogImage: post.seo?.ogImage || '',
         aeo: post.aeo || {},
         editorialReview: post.editorialReview || {},
-        readingTimeMinutes: post.readingTimeMinutes || 1,
+        readingTimeMinutes: post.readingTimeMinutes || post.readingTime || 1,
+        readTime: `${post.readingTimeMinutes || post.readingTime || 1} min`,
+        date: post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : new Date(post.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
         version: post.version || 1,
         publishedAt: post.publishedAt || null,
         createdAt: post.createdAt,
@@ -165,8 +224,15 @@ export async function createPost(req, res) {
       category = 'Uncategorized',
       categoryId = null,
       tags = [],
+      tag = null,
       author = null,
       status = 'draft',
+      published = null,
+      channel = 'portfolio',
+      coverImage = null,
+      coverImageAlt = '',
+      pdfUrl = '',
+      pdfName = '',
       isFeatured = false,
       featuredImage = null,
       seo = {},
@@ -198,7 +264,10 @@ export async function createPost(req, res) {
     }
 
     const validStatuses = ['draft', 'review', 'published', 'archived'];
-    const postStatus = validStatuses.includes(status) ? status : 'draft';
+    let postStatus = validStatuses.includes(status) ? status : 'draft';
+    if (published === true || published === 'true') {
+      postStatus = 'published';
+    }
 
     // RBAC: Only users with posts.publish can directly set status to 'published'
     if (postStatus === 'published' && !req.user.isSuperAdmin && !req.user.permissions.includes('posts.publish')) {
@@ -222,18 +291,41 @@ export async function createPost(req, res) {
       role: req.user.roleNames?.[0] || 'Author',
     };
 
+    const finalTags = Array.isArray(tags) ? [...tags.map(t => t.trim()).filter(Boolean)] : [];
+    if (tag && !finalTags.includes(tag.trim())) {
+      finalTags.unshift(tag.trim());
+    }
+
+    let resolvedFeaturedImage = featuredImage || null;
+    if (!resolvedFeaturedImage && coverImage) {
+      resolvedFeaturedImage = { url: coverImage, alt: coverImageAlt || title.trim() };
+    }
+
+    let finalCategory = category.trim();
+    if (finalCategory === 'Uncategorized' && tag) {
+      finalCategory = tag.trim();
+    }
+
     const newPost = {
       slug: finalSlug,
       title: title.trim(),
       excerpt: excerpt.trim(),
-      content: content.trim(),
-      category: category.trim(),
+      content: sanitizeArticleContent(content.trim()),
+      category: finalCategory,
       categoryId: categoryId && ObjectId.isValid(categoryId) ? new ObjectId(categoryId) : null,
-      tags: Array.isArray(tags) ? tags.map(t => t.trim()).filter(Boolean) : [],
+      channel: channel || 'portfolio',
+      tags: finalTags,
       author: authorDoc,
       status: postStatus,
       isFeatured: Boolean(isFeatured),
-      featuredImage: featuredImage || null,
+      featuredImage: resolvedFeaturedImage,
+      imageUrl: (typeof resolvedFeaturedImage === 'string' ? resolvedFeaturedImage : resolvedFeaturedImage?.url) || '/portfolio_crm.webp',
+      pdf: {
+        url: pdfUrl || '',
+        name: pdfName || '',
+      },
+      pdfUrl: pdfUrl || '',
+      pdfName: pdfName || '',
       seo: {
         metaTitle: seo.metaTitle || title.trim(),
         metaDescription: seo.metaDescription || excerpt.trim().slice(0, 160),
@@ -333,8 +425,15 @@ export async function updatePost(req, res) {
       category,
       categoryId,
       tags,
+      tag,
       author,
       status,
+      published,
+      channel,
+      coverImage,
+      coverImageAlt,
+      pdfUrl,
+      pdfName,
       isFeatured,
       featuredImage,
       seo,
@@ -353,9 +452,14 @@ export async function updatePost(req, res) {
       return res.status(404).json({ error: 'Post not found.', code: 'NOT_FOUND' });
     }
 
+    let resolvedStatus = status;
+    if (resolvedStatus === undefined && published !== undefined) {
+      resolvedStatus = (published === true || published === 'true') ? 'published' : 'draft';
+    }
+
     // RBAC: Status change check
-    if (status && status !== existingPost.status) {
-      if (status === 'published' && !req.user.isSuperAdmin && !req.user.permissions.includes('posts.publish')) {
+    if (resolvedStatus && resolvedStatus !== existingPost.status) {
+      if (resolvedStatus === 'published' && !req.user.isSuperAdmin && !req.user.permissions.includes('posts.publish')) {
         return res.status(403).json({
           error: 'You do not have permission to publish posts.',
           code: 'FORBIDDEN',
@@ -374,19 +478,36 @@ export async function updatePost(req, res) {
 
     const readingTime = content ? calculateReadingTime(content) : existingPost.readingTimeMinutes;
 
+    let resolvedTags = Array.isArray(tags) ? tags.map(t => t.trim()).filter(Boolean) : existingPost.tags;
+    if (tag && !resolvedTags.includes(tag.trim())) {
+      resolvedTags = [tag.trim(), ...resolvedTags];
+    }
+
+    let resolvedImage = featuredImage !== undefined ? featuredImage : existingPost.featuredImage;
+    if (coverImage !== undefined) {
+      resolvedImage = { url: coverImage, alt: coverImageAlt || existingPost.featuredImage?.alt || existingPost.title };
+    }
+
     const updateDoc = {
       slug: finalSlug,
       title: title ? title.trim() : existingPost.title,
       excerpt: excerpt !== undefined ? excerpt.trim() : existingPost.excerpt,
-      content: content !== undefined ? content.trim() : existingPost.content,
-      category: category !== undefined ? category.trim() : existingPost.category,
+      content: content !== undefined ? sanitizeArticleContent(content.trim()) : existingPost.content,
+      category: category !== undefined ? category.trim() : (tag || existingPost.category),
       categoryId: categoryId !== undefined && ObjectId.isValid(categoryId) ? new ObjectId(categoryId) : existingPost.categoryId,
-      tags: Array.isArray(tags) ? tags.map(t => t.trim()).filter(Boolean) : existingPost.tags,
+      channel: channel !== undefined ? channel : (existingPost.channel || 'portfolio'),
+      tags: resolvedTags,
       author: author !== undefined ? author : existingPost.author,
-      status: status !== undefined ? status : existingPost.status,
+      status: resolvedStatus !== undefined ? resolvedStatus : existingPost.status,
       isFeatured: isFeatured !== undefined ? Boolean(isFeatured) : existingPost.isFeatured,
-      featuredImage: featuredImage !== undefined ? featuredImage : existingPost.featuredImage,
-      imageUrl: (typeof featuredImage === 'string' ? featuredImage : featuredImage?.url) || (typeof existingPost.featuredImage === 'string' ? existingPost.featuredImage : existingPost.featuredImage?.url) || existingPost.imageUrl,
+      featuredImage: resolvedImage,
+      imageUrl: (typeof resolvedImage === 'string' ? resolvedImage : resolvedImage?.url) || existingPost.imageUrl,
+      pdf: {
+        url: pdfUrl !== undefined ? pdfUrl : (existingPost.pdf?.url || existingPost.pdfUrl || ''),
+        name: pdfName !== undefined ? pdfName : (existingPost.pdf?.name || existingPost.pdfName || ''),
+      },
+      pdfUrl: pdfUrl !== undefined ? pdfUrl : (existingPost.pdfUrl || existingPost.pdf?.url || ''),
+      pdfName: pdfName !== undefined ? pdfName : (existingPost.pdfName || existingPost.pdf?.name || ''),
       seo: seo !== undefined ? seo : existingPost.seo,
       aeo: aeo !== undefined ? {
         directQuestion: aeo.directQuestion !== undefined ? aeo.directQuestion : (existingPost.aeo?.directQuestion || ''),

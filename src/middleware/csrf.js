@@ -22,6 +22,12 @@ export function csrfMiddleware(req, res, next) {
     return next();
   }
 
+  // Bearer token requests (used by mobile apps, external API clients, and cross-origin SPAs)
+  // are immune to ambient CSRF attacks because browsers do not attach Authorization headers automatically
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    return next();
+  }
+
   // Exempt initial unauthenticated authentication requests (login, forgot, reset)
   // and public visitor endpoints (/api/public/) which carry no ambient session
   const isAuthPreFlight =

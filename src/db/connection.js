@@ -116,6 +116,7 @@ async function initIndexes(database) {
     // 9. cms_posts
     const postsCol = database.collection('cms_posts');
     await postsCol.createIndex({ slug: 1 }, { unique: true });
+    await postsCol.createIndex({ channel: 1, status: 1, publishedAt: -1 });
     await postsCol.createIndex({ status: 1, publishedAt: -1 });
     await postsCol.createIndex({ category: 1, status: 1 });
     await postsCol.createIndex({ tags: 1, status: 1 });

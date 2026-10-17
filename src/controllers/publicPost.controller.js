@@ -13,38 +13,57 @@ export async function getPublicPosts(req, res) {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 12));
     const skip = (page - 1) * limit;
 
-    const { category, tag, search, featured } = req.query;
+    const { category, tag, search, featured, channel } = req.query;
 
     // Security Gate: Public visitors strictly see ONLY published posts
-    const query = { status: 'published' };
+    const andConditions = [{ status: 'published' }];
+
+    // Channel Isolation:
+    // If channel is specified (e.g. 'portfolio'), allow that channel and shared 'all' articles.
+    // If no channel is specified, default to 'crm' (GyanVani CRM website default)
+    const targetChannel = channel || 'crm';
+    if (targetChannel && targetChannel !== 'all') {
+      andConditions.push({
+        $or: [
+          { channel: targetChannel },
+          { channel: 'all' },
+        ],
+      });
+    }
 
     if (category && category !== 'All' && category !== 'all') {
       const cleanCat = category.trim();
       const catRegex = new RegExp(`^${cleanCat.replace(/[-_]/g, '[-_\\s]')}$`, 'i');
-      query.$or = [
-        { category: cleanCat },
-        { category: { $regex: catRegex } },
-        { 'category.name': cleanCat },
-        { 'category.slug': cleanCat.toLowerCase() },
-      ];
+      andConditions.push({
+        $or: [
+          { category: cleanCat },
+          { category: { $regex: catRegex } },
+          { 'category.name': cleanCat },
+          { 'category.slug': cleanCat.toLowerCase() },
+        ],
+      });
     }
 
     if (tag) {
-      query.tags = tag;
+      andConditions.push({ tags: tag });
     }
 
     if (featured === 'true' || featured === true) {
-      query.isFeatured = true;
+      andConditions.push({ isFeatured: true });
     }
 
     if (search && search.trim()) {
       const term = search.trim();
-      query.$or = [
-        { title: { $regex: term, $options: 'i' } },
-        { excerpt: { $regex: term, $options: 'i' } },
-        { tags: { $regex: term, $options: 'i' } },
-      ];
+      andConditions.push({
+        $or: [
+          { title: { $regex: term, $options: 'i' } },
+          { excerpt: { $regex: term, $options: 'i' } },
+          { tags: { $regex: term, $options: 'i' } },
+        ],
+      });
     }
+
+    const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
     const db = getDb();
     const postsCol = db.collection('cms_posts');
@@ -68,15 +87,23 @@ export async function getPublicPosts(req, res) {
         seoTitle: p.seo?.metaTitle || p.title,
         excerpt: p.excerpt,
         category: p.category,
+        channel: p.channel || 'all',
         tags: p.tags || [],
+        tag: p.tags?.[0] || p.tag || p.category || '',
         author: typeof p.author === 'string' ? p.author : p.author?.name || 'Gyan VaniAi Product Team',
         date: p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Recent',
         createdAt: p.publishedAt || p.createdAt,
         status: p.status,
+        published: p.status === 'published',
         isFeatured: Boolean(p.isFeatured),
         imageUrl: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
+        coverImage: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
+        coverImageAlt: p.featuredImage?.alt || p.title,
+        pdfUrl: p.pdf?.url || p.pdfUrl || '',
+        pdfName: p.pdf?.name || p.pdfName || '',
         ogImageUrl: p.seo?.ogImage || (typeof p.featuredImage === 'string' ? p.featuredImage : p.featuredImage?.url) || '/portfolio_crm.webp',
-        readingTimeMinutes: p.readingTimeMinutes || 1,
+        readingTimeMinutes: p.readingTimeMinutes || p.readingTime || 1,
+        readTime: `${p.readingTimeMinutes || p.readingTime || 1} min`,
       })),
       pagination: {
         page,
@@ -94,7 +121,7 @@ export async function getPublicPosts(req, res) {
 export async function getPublicPostBySlug(req, res) {
   try {
     const { slugOrId } = req.params;
-    const { preview } = req.query;
+    const { preview, channel } = req.query;
 
     const db = getDb();
     const postsCol = db.collection('cms_posts');
@@ -108,6 +135,16 @@ export async function getPublicPostBySlug(req, res) {
       return res.status(404).json({ error: 'Article not found.', code: 'NOT_FOUND' });
     }
 
+    // Channel Security Isolation:
+    // If requesting for a specific channel (e.g. portfolio), reject if article belongs to a different channel
+    const targetChannel = channel || 'crm';
+    if (targetChannel && targetChannel !== 'all') {
+      const postChannel = post.channel || 'crm';
+      if (postChannel !== 'all' && postChannel !== targetChannel) {
+        return res.status(404).json({ error: 'Article not found for this channel.', code: 'NOT_FOUND' });
+      }
+    }
+
     // Security Verification: If post is NOT published, verify preview token
     if (post.status !== 'published') {
       const isAuthorizedPreview = preview && verifyPreviewToken(post._id.toString(), preview);
@@ -119,11 +156,17 @@ export async function getPublicPostBySlug(req, res) {
       }
     }
 
+    // Adjacent posts filtered by the same channel
+    const adjacentFilter = { status: 'published' };
+    if (targetChannel && targetChannel !== 'all') {
+      adjacentFilter.$or = [{ channel: targetChannel }, { channel: 'all' }];
+    }
+
     // Calculate adjacent posts (prev & next) for public reader continuity
     const [newerPost, olderPost] = await Promise.all([
       postsCol
         .find({
-          status: 'published',
+          ...adjacentFilter,
           publishedAt: { $gt: post.publishedAt || post.createdAt },
         })
         .sort({ publishedAt: 1 })
@@ -131,7 +174,7 @@ export async function getPublicPostBySlug(req, res) {
         .toArray(),
       postsCol
         .find({
-          status: 'published',
+          ...adjacentFilter,
           publishedAt: { $lt: post.publishedAt || post.createdAt },
         })
         .sort({ publishedAt: -1 })
@@ -149,22 +192,34 @@ export async function getPublicPostBySlug(req, res) {
         excerpt: post.excerpt,
         content: post.content,
         category: post.category,
+        channel: post.channel || 'all',
         tags: post.tags || [],
-        author: typeof post.author === 'string' ? post.author : post.author?.name || 'Gyan VaniAi Product Team',
-        date: post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Recent',
+        tag: post.tags?.[0] || post.tag || post.category || '',
+        author: typeof post.author === 'string' ? post.author : post.author?.name || 'Himanshu Bharti',
+        date: post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : new Date(post.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
         createdAt: post.publishedAt || post.createdAt,
         status: post.status,
+        published: post.status === 'published',
         isFeatured: Boolean(post.isFeatured),
         imageUrl: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
+        coverImage: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
+        coverImageAlt: post.featuredImage?.alt || post.title,
+        pdfUrl: post.pdf?.url || post.pdfUrl || '',
+        pdfName: post.pdf?.name || post.pdfName || '',
         ogImageUrl: post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp',
+        ogImage: post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp',
         seo: post.seo || {},
+        seoDescription: post.seo?.metaDescription || post.excerpt,
+        seoKeywords: Array.isArray(post.seo?.keywords) ? post.seo.keywords.join(', ') : (post.seo?.keywords || ''),
+        canonicalUrl: post.seo?.canonicalUrl || '',
         aeo: post.aeo || {},
         geo: post.geo || {},
         aeoDirectQuestion: post.aeo?.directQuestion || `What is ${post.title}?`,
         aeoDirectAnswer: post.aeo?.directAnswer || post.excerpt,
         aeoKeyTakeaways: post.aeo?.keyTakeaways || [],
         schemas: buildPostCompleteSchema(post),
-        readingTimeMinutes: post.readingTimeMinutes || 1,
+        readingTimeMinutes: post.readingTimeMinutes || post.readingTime || 1,
+        readTime: `${post.readingTimeMinutes || post.readingTime || 1} min`,
         prevPost: olderPost[0] ? { slug: olderPost[0].slug, title: olderPost[0].title } : null,
         nextPost: newerPost[0] ? { slug: newerPost[0].slug, title: newerPost[0].title } : null,
       },
@@ -237,13 +292,20 @@ export async function getPostSchemaEndpoint(req, res) {
 
 export async function getPublicCategories(req, res) {
   try {
+    const { channel } = req.query;
     const db = getDb();
     const postsCol = db.collection('cms_posts');
+
+    const targetChannel = channel || 'crm';
+    const match = { status: 'published' };
+    if (targetChannel && targetChannel !== 'all') {
+      match.$or = [{ channel: targetChannel }, { channel: 'all' }];
+    }
 
     // Aggregate active categories from published posts
     const categoryCounts = await postsCol
       .aggregate([
-        { $match: { status: 'published' } },
+        { $match: match },
         { $group: { _id: '$category', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ])
@@ -263,10 +325,17 @@ export async function getPublicCategories(req, res) {
 
 export async function getPublicTags(req, res) {
   try {
+    const { channel } = req.query;
     const db = getDb();
     const postsCol = db.collection('cms_posts');
 
-    const tags = await postsCol.distinct('tags', { status: 'published' });
+    const targetChannel = channel || 'crm';
+    const filter = { status: 'published' };
+    if (targetChannel && targetChannel !== 'all') {
+      filter.$or = [{ channel: targetChannel }, { channel: 'all' }];
+    }
+
+    const tags = await postsCol.distinct('tags', filter);
     return res.status(200).json({ tags: tags.filter(Boolean).slice(0, 30) });
   } catch (err) {
     console.error('Public Get Tags Error:', err);

@@ -15,6 +15,7 @@ export const APPROVED_ROUTES = new Set([
   '/admin/blog-manager',
   '/admin/blog/categories',
   '/admin/media',
+  '/admin/portfolio-media',
   '/admin/blog/analytics',
   '/admin/blog/seo',
   '/admin/cookies',
