@@ -14,6 +14,8 @@ export async function recordConsent(req, res) {
     const {
       status,           // 'all' | 'essential' | 'rejected' | 'custom'
       preferences = {}, // { necessary, functional, analytics, marketing }
+      channel,
+      source,
       userAgent,
       language,
       referrer,
@@ -22,7 +24,7 @@ export async function recordConsent(req, res) {
       region,
       country,
       countryCode,
-      consentVersion = '1.0',
+      consentVersion = '2.0',
     } = req.body || {};
 
     const validStatuses = ['all', 'essential', 'rejected', 'custom'];
@@ -33,6 +35,12 @@ export async function recordConsent(req, res) {
     const db = getDb();
     const col = db.collection(COL);
 
+    // Multi-channel isolation & source resolution
+    const resolvedChannel = (channel && typeof channel === 'string' && channel.trim().toLowerCase()) ||
+      (source && typeof source === 'string' && source.toLowerCase().includes('portfolio') ? 'portfolio' :
+        (pageUrl && pageUrl.toLowerCase().includes('portfolio') ? 'portfolio' : 'crm'));
+    const resolvedSource = source || (resolvedChannel === 'portfolio' ? 'portfolio_cookie_banner' : 'crm_cookie_banner');
+
     const doc = {
       status,
       preferences: {
@@ -41,6 +49,8 @@ export async function recordConsent(req, res) {
         analytics: Boolean(preferences.analytics),
         marketing: Boolean(preferences.marketing),
       },
+      channel: resolvedChannel,
+      source: resolvedSource,
       // Visitor context — stored for legal audit trail
       userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 512) : null,
       language: typeof language === 'string' ? language.slice(0, 20) : null,
@@ -53,7 +63,7 @@ export async function recordConsent(req, res) {
       countryCode: preferences.analytics ? (typeof countryCode === 'string' ? countryCode : null) : null,
       // Compliance metadata
       consentVersion,
-      legalBasis: 'GDPR Art.7 / DPDP Act 2023 S.6 / CCPA 1798.120',
+      legalBasis: 'GDPR Art.7 / DPDP Act 2023 §6 / CCPA §1798.120',
       createdAt: new Date(),
     };
 
@@ -62,6 +72,7 @@ export async function recordConsent(req, res) {
     return res.status(201).json({
       message: 'Consent recorded.',
       id: result.insertedId.toString(),
+      channel: resolvedChannel,
     });
   } catch (err) {
     console.error('Record Consent Error:', err);
@@ -75,7 +86,7 @@ export async function getConsents(req, res) {
     const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const skip  = (page - 1) * limit;
-    const { status, country, search } = req.query;
+    const { status, country, search, channel } = req.query;
 
     const db  = getDb();
     const col = db.collection(COL);
@@ -83,11 +94,16 @@ export async function getConsents(req, res) {
     const filter = {};
     if (status && status !== 'all_status') filter.status = status;
     if (country && country !== 'all_countries') filter.countryCode = country;
+    if (channel && channel !== 'all' && channel !== 'all_channels') {
+      filter.channel = channel;
+    }
     if (search && search.trim()) {
       filter.$or = [
         { country:   { $regex: search, $options: 'i' } },
         { pageUrl:   { $regex: search, $options: 'i' } },
         { userAgent: { $regex: search, $options: 'i' } },
+        { channel:   { $regex: search, $options: 'i' } },
+        { source:    { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -101,6 +117,8 @@ export async function getConsents(req, res) {
         id: r._id.toString(),
         status: r.status,
         preferences: r.preferences,
+        channel: r.channel || 'crm',
+        source: r.source || (r.channel === 'portfolio' ? 'portfolio_cookie_banner' : 'crm_cookie_banner'),
         country: r.country,
         countryCode: r.countryCode,
         city: r.city,
@@ -126,8 +144,14 @@ export async function getConsents(req, res) {
 /* ── GET /api/admin/cookies/analytics ───────────────────────────────────── */
 export async function getConsentAnalytics(req, res) {
   try {
+    const { channel } = req.query;
     const db  = getDb();
     const col = db.collection(COL);
+
+    const matchFilter = {};
+    if (channel && channel !== 'all' && channel !== 'all_channels') {
+      matchFilter.channel = channel;
+    }
 
     const now          = new Date();
     const last30       = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -141,20 +165,22 @@ export async function getConsentAnalytics(req, res) {
       countryBreakdown,
       categoryBreakdown,
       dailyTrend,
+      channelBreakdown,
     ] = await Promise.all([
-      col.countDocuments({}),
-      col.countDocuments({ createdAt: { $gte: last30 } }),
-      col.countDocuments({ createdAt: { $gte: last7  } }),
+      col.countDocuments(matchFilter),
+      col.countDocuments({ ...matchFilter, createdAt: { $gte: last30 } }),
+      col.countDocuments({ ...matchFilter, createdAt: { $gte: last7  } }),
 
       // Status breakdown
       col.aggregate([
+        { $match: matchFilter },
         { $group: { _id: '$status', count: { $sum: 1 } } },
         { $sort:  { count: -1 } },
       ]).toArray(),
 
       // Top countries (last 30 days)
       col.aggregate([
-        { $match: { createdAt: { $gte: last30 }, country: { $ne: null } } },
+        { $match: { ...matchFilter, createdAt: { $gte: last30 }, country: { $ne: null } } },
         { $group: { _id: '$country', count: { $sum: 1 } } },
         { $sort:  { count: -1 } },
         { $limit: 8 },
@@ -162,6 +188,7 @@ export async function getConsentAnalytics(req, res) {
 
       // Cookie category acceptance rates
       col.aggregate([
+        { $match: matchFilter },
         { $group: {
           _id: null,
           functional: { $sum: { $cond: ['$preferences.functional', 1, 0] } },
@@ -173,7 +200,7 @@ export async function getConsentAnalytics(req, res) {
 
       // Daily consent trend (last 30 days)
       col.aggregate([
-        { $match: { createdAt: { $gte: last30 } } },
+        { $match: { ...matchFilter, createdAt: { $gte: last30 } } },
         { $group: {
           _id:   { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
           count: { $sum: 1 },
@@ -181,6 +208,12 @@ export async function getConsentAnalytics(req, res) {
           rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } },
         }},
         { $sort: { _id: 1 } },
+      ]).toArray(),
+
+      // Overall channel breakdown across all consents
+      col.aggregate([
+        { $group: { _id: { $ifNull: ['$channel', 'crm'] }, count: { $sum: 1 } } },
+        { $sort:  { count: -1 } },
       ]).toArray(),
     ]);
 
@@ -216,6 +249,7 @@ export async function getConsentAnalytics(req, res) {
         date: d._id, count: d.count,
         accepted: d.accepted, rejected: d.rejected,
       })),
+      channelBreakdown: channelBreakdown.map(c => ({ channel: c._id, count: c.count })),
     });
   } catch (err) {
     console.error('Get Consent Analytics Error:', err);
