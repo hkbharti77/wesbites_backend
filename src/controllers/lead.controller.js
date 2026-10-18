@@ -23,6 +23,7 @@ export async function submitPublicLead(req, res) {
     subject,
     message,
     source,
+    channel,
     consent,
     consentVersion,
     _hp_company, // Bot honeypot field
@@ -123,7 +124,11 @@ export async function submitPublicLead(req, res) {
     });
   }
 
-  // 4. Construct Lead Document
+  // 4. Construct Lead Document with Multi-Channel System Isolation
+  const resolvedChannel = (channel && typeof channel === 'string' && channel.trim().toLowerCase()) || 
+    (source && typeof source === 'string' && source.toLowerCase().includes('portfolio') ? 'portfolio' : 'crm');
+  const resolvedSource = source || (resolvedChannel === 'portfolio' ? 'portfolio_contact_form' : 'website_contact');
+
   const now = new Date();
   const leadDoc = {
     name: trimmedName,
@@ -131,9 +136,10 @@ export async function submitPublicLead(req, res) {
     emailNormalized,
     phone: trimmedPhone,
     company: trimmedCompany,
-    subject: subject ? subject.trim() : (trimmedCompany ? `Lead from ${trimmedCompany}` : 'Website Inquiry'),
+    subject: subject ? subject.trim() : (trimmedCompany ? `Lead from ${trimmedCompany}` : (resolvedChannel === 'portfolio' ? 'Portfolio Contact Inquiry' : 'Website Inquiry')),
     message: trimmedMessage,
-    source: source || 'website_contact',
+    channel: resolvedChannel,
+    source: resolvedSource,
     status: 'new', // new | contacted | in_progress | qualified | converted | closed | spam
     priority: 'medium', // low | medium | high | urgent
     dedupeHash,
@@ -149,6 +155,7 @@ export async function submitPublicLead(req, res) {
     notes: [],
     assignedTo: null,
     metadata: {
+      channel: resolvedChannel,
       ip: ipAddress,
       userAgent: userAgent.substring(0, 300),
       referer: req.headers['referer'] || '',
@@ -167,6 +174,7 @@ export async function submitPublicLead(req, res) {
     targetType: 'contact_lead',
     targetId: result.insertedId,
     metadata: {
+      channel: leadDoc.channel,
       source: leadDoc.source,
       hasPhone: Boolean(trimmedPhone),
       hasCompany: Boolean(trimmedCompany),
@@ -179,10 +187,15 @@ export async function submitPublicLead(req, res) {
   sendLeadNotificationToAdmin({ lead: leadDoc }).catch(() => {});
   sendLeadConfirmationToUser({ lead: leadDoc }).catch(() => {});
 
+  const successMessage = resolvedChannel === 'portfolio'
+    ? 'Thank you for reaching out! Your message has been received, and I will get back to you shortly.'
+    : 'Thank you for contacting GyanVaniAi! A senior solution architect will review your workflow and respond within 24 hours.';
+
   return res.status(201).json({
     success: true,
-    message: 'Thank you for contacting GyanVaniAi! A senior solution architect will review your workflow and respond within 24 hours.',
+    message: successMessage,
     leadId: result.insertedId,
+    channel: resolvedChannel,
   });
 }
 
@@ -210,6 +223,16 @@ export async function getLeads(req, res) {
   // Priority Filter
   if (req.query.priority && req.query.priority !== 'all') {
     filter.priority = req.query.priority;
+  }
+
+  // Channel System Filter (portfolio | crm | all)
+  if (req.query.channel && req.query.channel !== 'all') {
+    const ch = req.query.channel.trim().toLowerCase();
+    if (ch === 'crm') {
+      filter.$or = [{ channel: 'crm' }, { channel: { $exists: false } }];
+    } else {
+      filter.channel = ch;
+    }
   }
 
   // Search Filter (name, emailNormalized, company, message)
@@ -247,6 +270,16 @@ export async function getLeadStats(req, res) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+  const baseFilter = {};
+  if (req.query.channel && req.query.channel !== 'all') {
+    const ch = req.query.channel.trim().toLowerCase();
+    if (ch === 'crm') {
+      baseFilter.$or = [{ channel: 'crm' }, { channel: { $exists: false } }];
+    } else {
+      baseFilter.channel = ch;
+    }
+  }
+
   const [
     total,
     newLeads,
@@ -259,16 +292,16 @@ export async function getLeadStats(req, res) {
     todayCount,
     last30Days,
   ] = await Promise.all([
-    leadsCol.countDocuments({}),
-    leadsCol.countDocuments({ status: 'new' }),
-    leadsCol.countDocuments({ status: 'contacted' }),
-    leadsCol.countDocuments({ status: 'in_progress' }),
-    leadsCol.countDocuments({ status: 'qualified' }),
-    leadsCol.countDocuments({ status: 'converted' }),
-    leadsCol.countDocuments({ status: 'closed' }),
-    leadsCol.countDocuments({ status: 'spam' }),
-    leadsCol.countDocuments({ createdAt: { $gte: startOfToday } }),
-    leadsCol.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+    leadsCol.countDocuments(baseFilter),
+    leadsCol.countDocuments({ ...baseFilter, status: 'new' }),
+    leadsCol.countDocuments({ ...baseFilter, status: 'contacted' }),
+    leadsCol.countDocuments({ ...baseFilter, status: 'in_progress' }),
+    leadsCol.countDocuments({ ...baseFilter, status: 'qualified' }),
+    leadsCol.countDocuments({ ...baseFilter, status: 'converted' }),
+    leadsCol.countDocuments({ ...baseFilter, status: 'closed' }),
+    leadsCol.countDocuments({ ...baseFilter, status: 'spam' }),
+    leadsCol.countDocuments({ ...baseFilter, createdAt: { $gte: startOfToday } }),
+    leadsCol.countDocuments({ ...baseFilter, createdAt: { $gte: thirtyDaysAgo } }),
   ]);
 
   const activeLeads = total - closed - spam;
@@ -442,6 +475,14 @@ export async function exportLeadsCsv(req, res) {
   if (req.query.status && req.query.status !== 'all') {
     filter.status = req.query.status;
   }
+  if (req.query.channel && req.query.channel !== 'all') {
+    const ch = req.query.channel.trim().toLowerCase();
+    if (ch === 'crm') {
+      filter.$or = [{ channel: 'crm' }, { channel: { $exists: false } }];
+    } else {
+      filter.channel = ch;
+    }
+  }
 
   const leads = await db.collection('contact_leads').find(filter).sort({ createdAt: -1 }).toArray();
 
@@ -457,13 +498,14 @@ export async function exportLeadsCsv(req, res) {
 
   const headers = [
     'ID',
+    'Channel',
+    'Source',
     'Name',
     'Email',
     'Phone',
     'Company',
     'Subject',
     'Message',
-    'Source',
     'Status',
     'Priority',
     'Consent Version',
@@ -473,6 +515,8 @@ export async function exportLeadsCsv(req, res) {
 
   const rows = leads.map((l) => [
     sanitizeCell(l._id),
+    sanitizeCell(l.channel || 'crm'),
+    sanitizeCell(l.source || ''),
     sanitizeCell(l.name),
     sanitizeCell(l.email),
     sanitizeCell(l.phone || ''),

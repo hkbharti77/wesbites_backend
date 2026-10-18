@@ -158,6 +158,17 @@ async function initIndexes(database) {
     const lpRevisionsCol = database.collection('cms_landing_page_revisions');
     await lpRevisionsCol.createIndex({ version: -1 });
     await lpRevisionsCol.createIndex({ createdAt: -1 });
+
+    // 17. cookie_consents (TTL index: automated 12-month erasure under DPDP Act §8(7) & Rule 8)
+    const cookieCol = database.collection('cookie_consents');
+    await cookieCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 31536000 });
+    await cookieCol.createIndex({ status: 1, createdAt: -1 });
+
+    // 18. privacy_requests (Data Subject Rights and statutory grievance tracking)
+    const privacyCol = database.collection('privacy_requests');
+    await privacyCol.createIndex({ ticketId: 1 }, { unique: true });
+    await privacyCol.createIndex({ emailNormalized: 1, createdAt: -1 });
+    await privacyCol.createIndex({ status: 1, slaResolutionDueAt: 1 });
   } catch (indexErr) {
     // Non-fatal if index already exists
     console.warn('Index initialization notice:', indexErr.message);

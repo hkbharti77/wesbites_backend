@@ -1,4 +1,5 @@
 import { getDb } from '../db/connection.js';
+import { dispatchSecurityIncidentAlert } from './incidentAlert.service.js';
 
 /**
  * Audit log service: Write-only append logging for security-sensitive actions.
@@ -36,6 +37,12 @@ export async function logAuditEvent({
     };
 
     await auditCol.insertOne(logEntry);
+
+    // Asynchronously evaluate for critical security incidents & dispatch CERT-In / DPDP §8(6) alerts
+    dispatchSecurityIncidentAlert(logEntry).catch(err => {
+      console.warn('Incident alert dispatch notice:', err.message);
+    });
+
     return logEntry;
   } catch (err) {
     // Audit logging failure should be logged to stderr without crashing the request flow

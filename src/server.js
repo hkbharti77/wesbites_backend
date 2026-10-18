@@ -28,6 +28,7 @@ import publicLandingPageRoutes from './routes/publicLandingPage.routes.js';
 import { getPublicCategories, getPublicTags, getBlogSitemapXmlEndpoint, getBlogRssXmlEndpoint } from './controllers/publicPost.controller.js';
 import { getPublicTheme } from './controllers/settings.controller.js';
 import { publicSiteMediaRoutes, adminSiteMediaRoutes } from './routes/siteMedia.routes.js';
+import { publicPrivacyRequestRoutes, adminPrivacyRequestRoutes } from './routes/privacyRequest.routes.js';
 
 dotenv.config();
 
@@ -77,10 +78,11 @@ app.use(cors({
     const allowed = parseAllowedOrigins();
     const normalizedOrigin = origin.trim().replace(/\/+$/, '');
 
-    // Allow wildcard, explicit match, any gyanvaniai domain/subdomain, or Vercel preview deployment
+    // Allow wildcard, explicit match, any gyanvaniai domain/subdomain, any localhost port, or Vercel preview deployment
     const isAllowed = 
       allowed.includes('*') ||
       allowed.includes(normalizedOrigin) ||
+      /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(normalizedOrigin) ||
       /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*gyanvaniai\.(?:com|info)(?::\d+)?$/i.test(normalizedOrigin) ||
       /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/i.test(normalizedOrigin);
 
@@ -159,6 +161,10 @@ app.use('/api/admin/subscribers', subscriberRoutes);
 app.use('/api/public/contact', contactRoutes);
 app.use('/api/admin/leads', leadRoutes);
 
+// Data Subject Rights (DSR) & Privacy Grievance Handling (India DPDP Act 2023)
+app.use('/api/public/privacy-requests', publicPrivacyRequestRoutes);
+app.use('/api/admin/privacy-requests', adminPrivacyRequestRoutes);
+
 // Public XML Sitemaps & RSS Feeds (Dynamic MongoDB-backed for Search & AI Crawlers)
 app.get(['/blog-sitemap.xml', '/sitemap.xml'], getBlogSitemapXmlEndpoint);
 app.get(['/rss.xml', '/feed.xml'], getBlogRssXmlEndpoint);
@@ -192,11 +198,15 @@ app.use((err, req, res, _next) => {
 // Start server function (exported for testing or programmatic boot)
 export async function startServer(customPort = PORT) {
   await connectDB();
-  return new Promise((resolve) => {
-    const server = app.listen(customPort, () => {
-      console.log(`🚀 GyanVaniAi Admin Backend running on port ${customPort}`);
+  return new Promise((resolve, reject) => {
+    const server = app.listen(customPort, '0.0.0.0', () => {
+      console.log(`🚀 GyanVaniAi Admin Backend running on http://0.0.0.0:${customPort}`);
       console.log(`🔒 CORS Origin Policy: Controlled by CORS_ORIGIN -> ${parseAllowedOrigins().join(', ')}`);
       resolve(server);
+    });
+    server.on('error', (err) => {
+      console.error('Server listen error:', err);
+      reject(err);
     });
   });
 }

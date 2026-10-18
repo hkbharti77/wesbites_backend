@@ -129,7 +129,7 @@ export function getDefaultLandingPage() {
           { name: 'Custom Pipelines', type: 'Real-Time Sync' },
           { name: 'Zapier', type: 'Webhook Triggers' },
           { name: 'OpenAI / Claude', type: 'RAG Intelligence' },
-          { name: 'PostgreSQL', type: 'Isolated Tenant DB' },
+          { name: 'MongoDB / PostgreSQL', type: 'Dedicated Isolated DB' },
         ],
         badges: [
           { label: 'SOC2 Ready Architecture', icon: 'ShieldCheck' },
@@ -167,7 +167,7 @@ export function getDefaultLandingPage() {
           {
             icon: 'Bot',
             title: 'RAG-Based AI Assistant',
-            description: 'Query company knowledge, sales playbooks, and docs with verified facts and tenant isolation.',
+            description: 'Query company knowledge, sales playbooks, and docs with verified facts and isolated enterprise context.',
             to: '/services/ai-chatbots',
             tag: 'RAG Knowledge',
           },
@@ -272,7 +272,7 @@ export function getDefaultLandingPage() {
         footer: {
           label: 'Enterprise Workflow Execution',
           title: 'Enterprise Reliability Standards',
-          desc: 'Every step is verified by automated SLA triggers and tenant-isolated audit logging.',
+          desc: 'Every step is verified by automated SLA triggers and chronological security audit logging.',
           buttonText: 'Explore Pipeline Architecture',
           buttonUrl: '/services/crm-development',
         },
@@ -404,7 +404,7 @@ export function getDefaultLandingPage() {
         enabled: true,
         order: 70,
         title: 'Enterprise security without enterprise complexity',
-        subtitle: 'Engineered from the ground up for strict data privacy, zero cross-tenant exposure, and regulatory compliance.',
+        subtitle: 'Engineered from the ground up for strict data privacy, dedicated environment isolation, and regulatory compliance.',
         cards: [
           {
             icon: 'KeyRound',
@@ -413,8 +413,8 @@ export function getDefaultLandingPage() {
           },
           {
             icon: 'Database',
-            title: 'Cryptographic Tenant Isolation',
-            desc: 'Vector stores and relational databases are completely siloed per tenant with zero cross-leakage.',
+            title: 'Dedicated Environment & Data Isolation',
+            desc: 'Vector stores and operational databases are siloed in dedicated environments with strict cryptographic access boundaries.',
           },
           {
             icon: 'Lock',

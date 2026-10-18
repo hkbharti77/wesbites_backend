@@ -255,6 +255,7 @@ export async function sendLeadNotificationToAdmin({ lead }) {
     <div class="field"><span class="label">Email:</span> <span class="val">${lead.email}</span></div>
     ${lead.phone ? `<div class="field"><span class="label">Phone:</span> <span class="val">${lead.phone}</span></div>` : ''}
     ${lead.company ? `<div class="field"><span class="label">Company:</span> <span class="val">${lead.company}</span></div>` : ''}
+    <div class="field"><span class="label">Channel:</span> <span class="val" style="color: #38bdf8;">${lead.channel === 'portfolio' ? '💼 Portfolio Website' : '🏢 SaaS CRM'}</span></div>
     <div class="field"><span class="label">Source:</span> <span class="val">${lead.source || 'Website'}</span></div>
     <div class="field"><span class="label">Timestamp:</span> <span class="val">${new Date(lead.createdAt).toLocaleString()}</span></div>
     
@@ -262,17 +263,18 @@ export async function sendLeadNotificationToAdmin({ lead }) {
     <div class="msg-box">${lead.message}</div>
 
     <div class="footer">
-      GyanVaniAi CMS Lead Management • Manage this lead in your Admin Console.
+      GyanVaniAi CMS Lead Management • Channel: ${lead.channel || 'crm'} • Manage this lead in your Admin Console.
     </div>
   </div>
 </body>
 </html>`;
 
   try {
+    const channelTag = lead.channel === 'portfolio' ? '💼 Portfolio' : '🏢 CRM';
     await client.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to: adminEmail,
-      subject: `🚨 New Lead: ${lead.name} (${lead.company || lead.email})`,
+      subject: `🚨 [${channelTag}] New Inquiry: ${lead.name} (${lead.company || lead.email})`,
       html,
     });
     return { ok: true };
@@ -287,15 +289,19 @@ export async function sendLeadNotificationToAdmin({ lead }) {
  */
 export async function sendLeadConfirmationToUser({ lead }) {
   const client = getTransporter();
-  const siteUrl = process.env.PUBLIC_WEBSITE_URL || 'https://www.gyanvaniai.com';
-  const whatsappUrl = 'https://wa.me/918700620913?text=Hi%20Gyan%20VaniAi%2C%20I%20would%20like%20to%20connect%20regarding%20my%20recent%20inquiry.';
+  const isPortfolio = lead.channel === 'portfolio';
+  const siteUrl = isPortfolio ? 'https://hkbharti77.github.io/My-portfillos/' : (process.env.PUBLIC_WEBSITE_URL || 'https://www.gyanvaniai.com');
+  const bannerEyebrow = isPortfolio ? 'Consultation & Service Inquiry' : 'Autonomous AI & Revenue Operations';
+  const bannerTitle = isPortfolio ? 'Himanshu Bharti — Portfolio' : 'Gyan VaniAi Technologies';
+  const bannerSubtitle = isPortfolio ? 'Full Stack Software, Enterprise Architecture & Production AI' : 'Next-Generation AI CRM, Voice Calling Bots & Conversational Commerce';
+  const whatsappUrl = 'https://wa.me/918700620913?text=Hi%20Himanshu%2C%20I%20would%20like%20to%20connect%20regarding%20my%20recent%20inquiry.';
 
   if (!client) {
-    console.log(`[DEV EMAIL MOCK] Lead Marketing Confirmation to User (${lead.email}): Thank you for reaching out to GyanVaniAi`);
+    console.log(`[DEV EMAIL MOCK] Lead Confirmation (${lead.channel || 'crm'}) to User (${lead.email}): Received request`);
     return { ok: true, mocked: true };
   }
 
-  const fromName = process.env.SMTP_FROM_NAME || 'GyanVaniAi Technologies';
+  const fromName = isPortfolio ? 'Himanshu Bharti' : (process.env.SMTP_FROM_NAME || 'GyanVaniAi Technologies');
   const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
 
   const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -303,7 +309,7 @@ export async function sendLeadConfirmationToUser({ lead }) {
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Welcome to GyanVaniAi — Inbound Consultation Received</title>
+  <title>${isPortfolio ? 'Thank you for reaching out — Himanshu Bharti' : 'Welcome to GyanVaniAi — Inbound Consultation Received'}</title>
   <style type="text/css">
     body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
@@ -331,13 +337,13 @@ export async function sendLeadConfirmationToUser({ lead }) {
                   <tr>
                     <td align="center">
                       <div style="display: inline-block; background: rgba(255,255,255,0.12); padding: 6px 14px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;">
-                        Autonomous AI &amp; Revenue Operations
+                        ${bannerEyebrow}
                       </div>
                       <h1 class="hero-title" style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
-                        Gyan VaniAi Technologies
+                        ${bannerTitle}
                       </h1>
                       <p style="margin: 8px 0 0 0; font-size: 14px; color: #c7d2fe; line-height: 1.5;">
-                        Next-Generation AI CRM, Voice Calling Bots &amp; Conversational Commerce
+                        ${bannerSubtitle}
                       </p>
                     </td>
                   </tr>

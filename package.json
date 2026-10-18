@@ -13,7 +13,9 @@
     "seed:cms": "node src/scripts/seedCms.js",
     "test": "node tests/run-all-backend-tests.js",
     "test:security": "node tests/security-verification.test.js",
-    "test:cms": "node tests/cms-lifecycle.test.js"
+    "test:cms": "node tests/cms-lifecycle.test.js",
+    "test:dpdp": "node tests/dpdp-compliance.test.js",
+    "retention:cleanup": "node src/scripts/enforce-data-retention.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

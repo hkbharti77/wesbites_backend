@@ -5,18 +5,8 @@ import { requirePermission } from '../middleware/rbac.js';
 
 const router = Router();
 
-router.use(authenticateAdmin);
-
-// Analytics and compliance statistics
-router.get('/stats', requirePermission('audit.read'), fetchAuditStats);
-
-// Compliance export (CSV / JSON)
-router.get('/export', requirePermission('audit.read'), exportAuditLogsController);
-
-// Filtered and paginated audit logs
-router.get('/', requirePermission('audit.read'), fetchAuditLogs);
-
 // Immutable Forensic Protection: Reject any mutation attempts with HTTP 405 Method Not Allowed
+// Disallowed universally before auth processing because audit logs are strictly append-only
 const rejectAuditMutation = (req, res) => {
   return res.status(405).json({
     error: 'Security audit logs are immutable append-only records. Modifications and deletions are strictly prohibited under compliance standards.',
@@ -33,6 +23,17 @@ router.put('/:id', rejectAuditMutation);
 router.delete('/:id', rejectAuditMutation);
 router.patch('/:id', rejectAuditMutation);
 router.post('/:id', rejectAuditMutation);
+
+router.use(authenticateAdmin);
+
+// Analytics and compliance statistics
+router.get('/stats', requirePermission('audit.read'), fetchAuditStats);
+
+// Compliance export (CSV / JSON)
+router.get('/export', requirePermission('audit.read'), exportAuditLogsController);
+
+// Filtered and paginated audit logs
+router.get('/', requirePermission('audit.read'), fetchAuditLogs);
 
 export default router;
 
