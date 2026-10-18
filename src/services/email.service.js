@@ -285,31 +285,304 @@ export async function sendLeadNotificationToAdmin({ lead }) {
 }
 
 /**
- * Dispatch confirmation receipt + rich marketing showcase email to prospect
+/**
+ * Helper to build personalized confirmation email for portfolio inquiries (Himanshu Bharti)
  */
-export async function sendLeadConfirmationToUser({ lead }) {
-  const client = getTransporter();
-  const isPortfolio = lead.channel === 'portfolio';
-  const siteUrl = isPortfolio ? 'https://hkbharti77.github.io/My-portfillos/' : (process.env.PUBLIC_WEBSITE_URL || 'https://www.gyanvaniai.com');
-  const bannerEyebrow = isPortfolio ? 'Consultation & Service Inquiry' : 'Autonomous AI & Revenue Operations';
-  const bannerTitle = isPortfolio ? 'Himanshu Bharti — Portfolio' : 'Gyan VaniAi Technologies';
-  const bannerSubtitle = isPortfolio ? 'Full Stack Software, Enterprise Architecture & Production AI' : 'Next-Generation AI CRM, Voice Calling Bots & Conversational Commerce';
-  const whatsappUrl = 'https://wa.me/918700620913?text=Hi%20Himanshu%2C%20I%20would%20like%20to%20connect%20regarding%20my%20recent%20inquiry.';
-
-  if (!client) {
-    console.log(`[DEV EMAIL MOCK] Lead Confirmation (${lead.channel || 'crm'}) to User (${lead.email}): Received request`);
-    return { ok: true, mocked: true };
-  }
-
-  const fromName = isPortfolio ? 'Himanshu Bharti' : (process.env.SMTP_FROM_NAME || 'GyanVaniAi Technologies');
-  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+function buildPortfolioConfirmationEmail({ lead, siteUrl, whatsappUrl }) {
+  const fromName = 'Himanshu Bharti';
+  const replyTo = 'hkbharti77@gmail.com';
+  const subject = `Thank you for reaching out — Himanshu Bharti`;
 
   const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${isPortfolio ? 'Thank you for reaching out — Himanshu Bharti' : 'Welcome to GyanVaniAi — Inbound Consultation Received'}</title>
+  <title>${subject}</title>
+  <style type="text/css">
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+    body { margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    @media only screen and (max-width: 620px) {
+      .container { width: 100% !important; padding: 12px !important; }
+      .service-col { display: block !important; width: 100% !important; margin-bottom: 12px !important; }
+      .hero-title { font-size: 22px !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 24px 0; background-color: #0b0f19; color: #f1f5f9;">
+  <center>
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0b0f19;">
+      <tr>
+        <td align="center" style="padding: 10px;">
+          <!-- Main Container -->
+          <table border="0" cellpadding="0" cellspacing="0" width="600" class="container" style="max-width: 600px; width: 100%; background-color: #111827; border: 1px solid #1f2937; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            
+            <!-- Portfolio Header Banner -->
+            <tr>
+              <td align="center" style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%); padding: 36px 30px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td align="center">
+                      <div style="display: inline-block; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(165, 180, 252, 0.3); padding: 6px 14px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;">
+                        Direct Consultation &amp; Inquiry
+                      </div>
+                      <h1 class="hero-title" style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
+                        Himanshu Bharti
+                      </h1>
+                      <p style="margin: 8px 0 0 0; font-size: 14px; color: #c7d2fe; line-height: 1.5;">
+                        Software Engineer &bull; Generative AI, RAG &amp; Full Stack Architecture
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Welcome & Personal Receipt Section -->
+            <tr>
+              <td style="padding: 32px 30px 20px 30px;">
+                <h2 style="margin: 0 0 14px 0; font-size: 20px; font-weight: 700; color: #ffffff;">
+                  Hello ${lead.name || 'there'},
+                </h2>
+                <p style="margin: 0 0 16px 0; font-size: 15px; color: #94a3b8; line-height: 1.6;">
+                  Thank you for reaching out through my portfolio website! I have received your message regarding <strong style="color: #f8fafc;">${lead.subject || 'your inquiry'}</strong>.
+                </p>
+                <p style="margin: 0 0 20px 0; font-size: 15px; color: #94a3b8; line-height: 1.6;">
+                  I personally review every inquiry and project brief. I will get back to you with technical thoughts and next steps within <strong style="color: #10b981;">24 hours</strong>.
+                </p>
+
+                <!-- Submission Summary Card -->
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px;">
+                  <tr>
+                    <td style="padding: 16px 20px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #818cf8; margin-bottom: 8px;">
+                        📋 Your Message Details
+                      </div>
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 13px;">
+                        <tr>
+                          <td style="padding: 4px 0; color: #64748b; width: 90px;">Name:</td>
+                          <td style="padding: 4px 0; color: #f1f5f9; font-weight: 600;">${lead.name}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 4px 0; color: #64748b;">Email:</td>
+                          <td style="padding: 4px 0; color: #818cf8; font-family: monospace;">${lead.email}</td>
+                        </tr>
+                        ${lead.phone ? `<tr>
+                          <td style="padding: 4px 0; color: #64748b;">Phone:</td>
+                          <td style="padding: 4px 0; color: #f1f5f9; font-family: monospace;">${lead.phone}</td>
+                        </tr>` : ''}
+                        ${lead.company ? `<tr>
+                          <td style="padding: 4px 0; color: #64748b;">Company:</td>
+                          <td style="padding: 4px 0; color: #f1f5f9; font-weight: 600;">${lead.company}</td>
+                        </tr>` : ''}
+                        <tr>
+                          <td style="padding: 6px 0 0 0; color: #64748b; vertical-align: top;">Message:</td>
+                          <td style="padding: 6px 0 0 0; color: #cbd5e1; line-height: 1.5; font-style: italic;">&ldquo;${lead.message}&rdquo;</td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Technical Domains Section -->
+            <tr>
+              <td style="padding: 0 30px;">
+                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td align="center" style="border-top: 1px solid #1f2937; padding-top: 24px; padding-bottom: 16px;">
+                      <span style="background-color: #1e1b4b; color: #a5b4fc; padding: 5px 14px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">
+                        Core Engineering Expertise
+                      </span>
+                      <h3 style="margin: 12px 0 6px 0; font-size: 18px; font-weight: 700; color: #ffffff;">
+                        What I Build &amp; Specialize In
+                      </h3>
+                      <p style="margin: 0; font-size: 13px; color: #94a3b8;">
+                        High-performance AI applications, scalable microservices, and modern web software.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Skills Grid -->
+            <tr>
+              <td style="padding: 10px 30px 24px 30px;">
+                
+                <!-- Skill 1 -->
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; margin-bottom: 12px;">
+                  <tr>
+                    <td style="padding: 16px 20px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                        <tr>
+                          <td width="36" valign="top" style="padding-right: 12px;">
+                            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(99, 102, 241, 0.2); text-align: center; line-height: 36px; font-size: 18px;">
+                              🧠
+                            </div>
+                          </td>
+                          <td valign="top">
+                            <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #ffffff;">
+                              Generative AI, RAG &amp; LLM Orchestration
+                            </h4>
+                            <p style="margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+                              Autonomous agent workflows with LangChain, LlamaIndex, Vector DBs (Pinecone/Milvus), and OpenAI/Claude/OpenRouter APIs.
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Skill 2 -->
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; margin-bottom: 12px;">
+                  <tr>
+                    <td style="padding: 16px 20px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                        <tr>
+                          <td width="36" valign="top" style="padding-right: 12px;">
+                            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(16, 185, 129, 0.2); text-align: center; line-height: 36px; font-size: 18px;">
+                              💻
+                            </div>
+                          </td>
+                          <td valign="top">
+                            <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #ffffff;">
+                              Full Stack Architecture &amp; REST/WebSocket APIs
+                            </h4>
+                            <p style="margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+                              FastAPI (Python), Node.js, Express, React, TypeScript, TailwindCSS, MongoDB, PostgreSQL, and real-time state synchronization.
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Skill 3 -->
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; margin-bottom: 12px;">
+                  <tr>
+                    <td style="padding: 16px 20px;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                        <tr>
+                          <td width="36" valign="top" style="padding-right: 12px;">
+                            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); text-align: center; line-height: 36px; font-size: 18px;">
+                              ⚡
+                            </div>
+                          </td>
+                          <td valign="top">
+                            <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #ffffff;">
+                              Cloud Infrastructure, DevOps &amp; Production Deployments
+                            </h4>
+                            <p style="margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+                              Docker containerization, CI/CD pipelines, Vercel edge deployments, AWS infrastructure, and DPDP-compliant data handling.
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+              </td>
+            </tr>
+
+            <!-- Fast-Track WhatsApp CTA Section -->
+            <tr>
+              <td align="center" style="background: linear-gradient(180deg, #111827 0%, #0f172a 100%); padding: 24px 30px; border-top: 1px solid #1f2937;">
+                <p style="margin: 0 0 14px 0; font-size: 14px; font-weight: 600; color: #ffffff;">
+                  Need an urgent consultation or want to discuss a project directly?
+                </p>
+                <table border="0" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center" style="border-radius: 10px; background-color: #25D366; padding: 12px 24px; box-shadow: 0 4px 14px rgba(37, 211, 102, 0.35);">
+                      <a href="${whatsappUrl}" target="_blank" style="font-size: 14px; font-weight: 700; color: #ffffff; text-decoration: none; display: inline-block;">
+                        💬 Chat on WhatsApp (+91 87006 20913) &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin: 16px 0 0 0; font-size: 12px; color: #94a3b8;">
+                  Connect with me: 
+                  <a href="https://github.com/hkbharti77" target="_blank" style="color: #818cf8; text-decoration: underline; margin: 0 6px;">GitHub</a> &bull;
+                  <a href="https://www.linkedin.com/in/himanshu-bharti-81a5a618a" target="_blank" style="color: #818cf8; text-decoration: underline; margin: 0 6px;">LinkedIn</a> &bull;
+                  <a href="${siteUrl}" target="_blank" style="color: #818cf8; text-decoration: underline; margin: 0 6px;">Portfolio Site</a>
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer Compliance & Personal Details -->
+            <tr>
+              <td style="background-color: #0b0f19; padding: 24px 30px; border-top: 1px solid #1e293b; text-align: center;">
+                <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748b;">
+                  &copy; 2026 Himanshu Bharti. All rights reserved.
+                </p>
+                <p style="margin: 0 0 10px 0; font-size: 11px; color: #475569; line-height: 1.5;">
+                  Himanshu Bharti &bull; Software Engineer &bull; Delhi NCR, India &bull; Direct: <a href="mailto:hkbharti77@gmail.com" style="color: #6366f1;">hkbharti77@gmail.com</a>
+                </p>
+                <p style="margin: 0; font-size: 10px; color: #334155;">
+                  This email was sent in response to your inquiry submitted on my portfolio website. Processed under India's Digital Personal Data Protection (DPDP) Act, 2023.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+          <!-- End Container -->
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>`;
+
+  const text = `
+Hello ${lead.name || 'there'},
+
+Thank you for reaching out through my portfolio website! I have received your message regarding: ${lead.subject || 'your inquiry'}.
+
+I personally review all messages and project briefs. I will get back to you with next steps within 24 hours.
+
+--- YOUR MESSAGE DETAILS ---
+Name: ${lead.name}
+Email: ${lead.email}
+${lead.phone ? `Phone: ${lead.phone}\n` : ''}${lead.company ? `Company: ${lead.company}\n` : ''}Message: ${lead.message}
+
+--- CORE SPECIALIZATIONS ---
+1. Generative AI, RAG & LLMs (LangChain, Vector DBs, Autonomous Agents)
+2. Full Stack Engineering (FastAPI, Node.js, Express, React, TypeScript, MongoDB, PostgreSQL)
+3. Cloud Infrastructure & DevOps (Docker, CI/CD, Production Edge Deployments)
+
+--- DIRECT CONNECT ---
+WhatsApp: +91 87006 20913 (${whatsappUrl})
+Portfolio: ${siteUrl}
+GitHub: https://github.com/hkbharti77
+LinkedIn: https://www.linkedin.com/in/himanshu-bharti-81a5a618a
+Direct Email: hkbharti77@gmail.com
+
+© 2026 Himanshu Bharti. All rights reserved.
+`.trim();
+
+  return { fromName, replyTo, subject, html, text };
+}
+
+/**
+ * Helper to build marketing consultation receipt for SaaS CRM inquiries (GyanVaniAi)
+ */
+function buildCrmConfirmationEmail({ lead, siteUrl, whatsappUrl }) {
+  const fromName = process.env.SMTP_FROM_NAME || 'GyanVaniAi Technologies';
+  const replyTo = process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com';
+  const subject = `Welcome to GyanVaniAi — Inbound Consultation Received`;
+
+  const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${subject}</title>
   <style type="text/css">
     body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
@@ -337,13 +610,13 @@ export async function sendLeadConfirmationToUser({ lead }) {
                   <tr>
                     <td align="center">
                       <div style="display: inline-block; background: rgba(255,255,255,0.12); padding: 6px 14px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;">
-                        ${bannerEyebrow}
+                        Autonomous AI &amp; Revenue Operations
                       </div>
                       <h1 class="hero-title" style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
-                        ${bannerTitle}
+                        Gyan VaniAi Technologies
                       </h1>
                       <p style="margin: 8px 0 0 0; font-size: 14px; color: #c7d2fe; line-height: 1.5;">
-                        ${bannerSubtitle}
+                        Next-Generation AI CRM, Voice Calling Bots &amp; Conversational Commerce
                       </p>
                     </td>
                   </tr>
@@ -621,17 +894,43 @@ Support: contact@gyanvaniai.com
 Gyan VaniAi Technologies, New Delhi, India
 `.trim();
 
+  return { fromName, replyTo, subject, html, text };
+}
+
+/**
+ * Dispatch confirmation receipt + tailored showcase email to prospect
+ */
+export async function sendLeadConfirmationToUser({ lead }) {
+  const client = getTransporter();
+  const isPortfolio = lead.channel === 'portfolio';
+
+  if (!client) {
+    console.log(`[DEV EMAIL MOCK] Lead Confirmation (${lead.channel || 'crm'}) to User (${lead.email}): Received request`);
+    return { ok: true, mocked: true };
+  }
+
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  const siteUrl = isPortfolio
+    ? (process.env.PUBLIC_PORTFOLIO_URL || 'https://hkbharti77.github.io/My-portfillos/')
+    : (process.env.PUBLIC_WEBSITE_URL || 'https://www.gyanvaniai.com');
+  const whatsappUrl = 'https://wa.me/918700620913?text=Hi%20Himanshu%2C%20I%20would%20like%20to%20connect%20regarding%20my%20recent%20inquiry.';
+
+  const { fromName, replyTo, subject, html, text } = isPortfolio
+    ? buildPortfolioConfirmationEmail({ lead, siteUrl, whatsappUrl, fromEmail })
+    : buildCrmConfirmationEmail({ lead, siteUrl, whatsappUrl, fromEmail });
+
   try {
     await client.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to: lead.email,
-      subject: `Thank you for contacting GyanVaniAi — We have received your request`,
+      replyTo: replyTo || fromEmail,
+      subject,
       html,
       text,
     });
     return { ok: true };
   } catch (err) {
-    console.warn('Failed to send user lead marketing email:', err.message);
+    console.warn(`Failed to send user lead confirmation email (${lead.channel || 'crm'}):`, err.message);
     return { ok: false, error: err.message };
   }
 }
