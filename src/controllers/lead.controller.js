@@ -26,6 +26,7 @@ export async function submitPublicLead(req, res) {
     channel,
     consent,
     consentVersion,
+    ndaRequired,
     _hp_company, // Bot honeypot field
   } = req.body;
 
@@ -128,6 +129,7 @@ export async function submitPublicLead(req, res) {
   const resolvedChannel = (channel && typeof channel === 'string' && channel.trim().toLowerCase()) || 
     (source && typeof source === 'string' && source.toLowerCase().includes('portfolio') ? 'portfolio' : 'crm');
   const resolvedSource = source || (resolvedChannel === 'portfolio' ? 'portfolio_contact_form' : 'website_contact');
+  const hasNda = Boolean(ndaRequired);
 
   const now = new Date();
   const leadDoc = {
@@ -140,8 +142,9 @@ export async function submitPublicLead(req, res) {
     message: trimmedMessage,
     channel: resolvedChannel,
     source: resolvedSource,
+    ndaRequired: hasNda,
     status: 'new', // new | contacted | in_progress | qualified | converted | closed | spam
-    priority: 'medium', // low | medium | high | urgent
+    priority: hasNda ? 'high' : 'medium', // Automatically assign high priority if prospect requested bilateral NDA
     dedupeHash,
     dedupeHits: 0,
     lastDuplicateAt: null,
@@ -152,13 +155,20 @@ export async function submitPublicLead(req, res) {
       ip: ipAddress,
       userAgent: userAgent.substring(0, 300),
     },
-    notes: [],
+    notes: hasNda ? [
+      {
+        authorName: 'System Engine',
+        note: '⚖️ Prospect marked Mutual Non-Disclosure Agreement (NDA) required prior to architecture/code examination.',
+        createdAt: now,
+      }
+    ] : [],
     assignedTo: null,
     metadata: {
       channel: resolvedChannel,
       ip: ipAddress,
       userAgent: userAgent.substring(0, 300),
       referer: req.headers['referer'] || '',
+      ndaRequired: hasNda,
     },
     createdAt: now,
     updatedAt: now,
@@ -178,6 +188,7 @@ export async function submitPublicLead(req, res) {
       source: leadDoc.source,
       hasPhone: Boolean(trimmedPhone),
       hasCompany: Boolean(trimmedCompany),
+      ndaRequired: hasNda,
     },
     ipAddress,
     userAgent,
@@ -213,38 +224,49 @@ export async function getLeads(req, res) {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20', 10)));
   const skip = (page - 1) * limit;
 
-  const filter = {};
+  const conditions = [];
 
   // Status Filter
   if (req.query.status && req.query.status !== 'all') {
-    filter.status = req.query.status;
+    conditions.push({ status: req.query.status });
   }
 
   // Priority Filter
   if (req.query.priority && req.query.priority !== 'all') {
-    filter.priority = req.query.priority;
+    conditions.push({ priority: req.query.priority });
   }
 
   // Channel System Filter (portfolio | crm | all)
   if (req.query.channel && req.query.channel !== 'all') {
     const ch = req.query.channel.trim().toLowerCase();
-    if (ch === 'crm') {
-      filter.$or = [{ channel: 'crm' }, { channel: { $exists: false } }];
-    } else {
-      filter.channel = ch;
+    if (ch === 'portfolio') {
+      conditions.push({ channel: 'portfolio' });
+    } else if (ch === 'crm') {
+      conditions.push({
+        $or: [{ channel: 'crm' }, { channel: null }, { channel: { $exists: false } }],
+      });
     }
+  }
+
+  // Mutual NDA Filter (all | nda)
+  if (req.query.ndaRequired === 'true' || req.query.nda === 'true') {
+    conditions.push({ ndaRequired: true });
   }
 
   // Search Filter (name, emailNormalized, company, message)
   if (req.query.search && req.query.search.trim().length > 0) {
     const s = req.query.search.trim();
-    filter.$or = [
-      { name: { $regex: s, $options: 'i' } },
-      { emailNormalized: { $regex: s.toLowerCase(), $options: 'i' } },
-      { company: { $regex: s, $options: 'i' } },
-      { message: { $regex: s, $options: 'i' } },
-    ];
+    conditions.push({
+      $or: [
+        { name: { $regex: s, $options: 'i' } },
+        { emailNormalized: { $regex: s.toLowerCase(), $options: 'i' } },
+        { company: { $regex: s, $options: 'i' } },
+        { message: { $regex: s, $options: 'i' } },
+      ],
+    });
   }
+
+  const filter = conditions.length === 0 ? {} : conditions.length === 1 ? conditions[0] : { $and: conditions };
 
   const [leads, total] = await Promise.all([
     leadsCol.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
@@ -270,15 +292,23 @@ export async function getLeadStats(req, res) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const baseFilter = {};
+  let baseFilter = {};
   if (req.query.channel && req.query.channel !== 'all') {
     const ch = req.query.channel.trim().toLowerCase();
-    if (ch === 'crm') {
-      baseFilter.$or = [{ channel: 'crm' }, { channel: { $exists: false } }];
-    } else {
-      baseFilter.channel = ch;
+    if (ch === 'portfolio') {
+      baseFilter = { channel: 'portfolio' };
+    } else if (ch === 'crm') {
+      baseFilter = {
+        $or: [{ channel: 'crm' }, { channel: null }, { channel: { $exists: false } }],
+      };
     }
   }
+
+  const buildQuery = (extra) => {
+    if (!extra || Object.keys(extra).length === 0) return baseFilter;
+    if (Object.keys(baseFilter).length === 0) return extra;
+    return { $and: [baseFilter, extra] };
+  };
 
   const [
     total,
@@ -291,17 +321,19 @@ export async function getLeadStats(req, res) {
     spam,
     todayCount,
     last30Days,
+    ndaCount,
   ] = await Promise.all([
-    leadsCol.countDocuments(baseFilter),
-    leadsCol.countDocuments({ ...baseFilter, status: 'new' }),
-    leadsCol.countDocuments({ ...baseFilter, status: 'contacted' }),
-    leadsCol.countDocuments({ ...baseFilter, status: 'in_progress' }),
-    leadsCol.countDocuments({ ...baseFilter, status: 'qualified' }),
-    leadsCol.countDocuments({ ...baseFilter, status: 'converted' }),
-    leadsCol.countDocuments({ ...baseFilter, status: 'closed' }),
-    leadsCol.countDocuments({ ...baseFilter, status: 'spam' }),
-    leadsCol.countDocuments({ ...baseFilter, createdAt: { $gte: startOfToday } }),
-    leadsCol.countDocuments({ ...baseFilter, createdAt: { $gte: thirtyDaysAgo } }),
+    leadsCol.countDocuments(buildQuery()),
+    leadsCol.countDocuments(buildQuery({ status: 'new' })),
+    leadsCol.countDocuments(buildQuery({ status: 'contacted' })),
+    leadsCol.countDocuments(buildQuery({ status: 'in_progress' })),
+    leadsCol.countDocuments(buildQuery({ status: 'qualified' })),
+    leadsCol.countDocuments(buildQuery({ status: 'converted' })),
+    leadsCol.countDocuments(buildQuery({ status: 'closed' })),
+    leadsCol.countDocuments(buildQuery({ status: 'spam' })),
+    leadsCol.countDocuments(buildQuery({ createdAt: { $gte: startOfToday } })),
+    leadsCol.countDocuments(buildQuery({ createdAt: { $gte: thirtyDaysAgo } })),
+    leadsCol.countDocuments(buildQuery({ ndaRequired: true })),
   ]);
 
   const activeLeads = total - closed - spam;
@@ -319,6 +351,7 @@ export async function getLeadStats(req, res) {
     todayCount,
     last30Days,
     conversionRate,
+    ndaCount,
   });
 }
 
@@ -471,18 +504,22 @@ export async function deleteLead(req, res) {
 
 export async function exportLeadsCsv(req, res) {
   const db = getDb();
-  const filter = {};
+  const conditions = [];
   if (req.query.status && req.query.status !== 'all') {
-    filter.status = req.query.status;
+    conditions.push({ status: req.query.status });
   }
   if (req.query.channel && req.query.channel !== 'all') {
     const ch = req.query.channel.trim().toLowerCase();
-    if (ch === 'crm') {
-      filter.$or = [{ channel: 'crm' }, { channel: { $exists: false } }];
-    } else {
-      filter.channel = ch;
+    if (ch === 'portfolio') {
+      conditions.push({ channel: 'portfolio' });
+    } else if (ch === 'crm') {
+      conditions.push({
+        $or: [{ channel: 'crm' }, { channel: null }, { channel: { $exists: false } }],
+      });
     }
   }
+
+  const filter = conditions.length === 0 ? {} : conditions.length === 1 ? conditions[0] : { $and: conditions };
 
   const leads = await db.collection('contact_leads').find(filter).sort({ createdAt: -1 }).toArray();
 
@@ -506,6 +543,7 @@ export async function exportLeadsCsv(req, res) {
     'Company',
     'Subject',
     'Message',
+    'NDA Requested',
     'Status',
     'Priority',
     'Consent Version',
@@ -523,7 +561,7 @@ export async function exportLeadsCsv(req, res) {
     sanitizeCell(l.company || ''),
     sanitizeCell(l.subject || ''),
     sanitizeCell(l.message || ''),
-    sanitizeCell(l.source || ''),
+    sanitizeCell(l.ndaRequired ? 'YES' : 'NO'),
     sanitizeCell(l.status),
     sanitizeCell(l.priority || 'medium'),
     sanitizeCell(l.consent?.version || 'DPDP-2023-v1'),

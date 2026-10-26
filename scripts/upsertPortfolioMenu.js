@@ -8,7 +8,7 @@ async function main() {
   const existing = await menusCol.findOne({ routeKey: '/admin/portfolio-media' });
   if (!existing) {
     const res = await menusCol.insertOne({
-      label: 'Portfolio Assets (Resume & Video)',
+      label: 'Portfolio Assets',
       icon: 'Briefcase',
       routeKey: '/admin/portfolio-media',
       parentId: null,
@@ -24,7 +24,7 @@ async function main() {
       { routeKey: '/admin/portfolio-media' },
       {
         $set: {
-          label: 'Portfolio Assets (Resume & Video)',
+          label: 'Portfolio Assets',
           icon: 'Briefcase',
           requiredPermission: 'media.read',
           enabled: true,

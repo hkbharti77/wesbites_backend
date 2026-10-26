@@ -91,21 +91,46 @@ export async function getConsents(req, res) {
     const db  = getDb();
     const col = db.collection(COL);
 
-    const filter = {};
-    if (status && status !== 'all_status') filter.status = status;
-    if (country && country !== 'all_countries') filter.countryCode = country;
+    const filterConditions = [];
+    if (status && status !== 'all_status') {
+      filterConditions.push({ status });
+    }
+    if (country && country !== 'all_countries') {
+      filterConditions.push({
+        $or: [
+          { countryCode: country },
+          { country: { $regex: new RegExp(`^${country}$`, 'i') } },
+        ],
+      });
+    }
     if (channel && channel !== 'all' && channel !== 'all_channels') {
-      filter.channel = channel;
+      if (channel.toLowerCase() === 'crm') {
+        filterConditions.push({
+          $or: [
+            { channel: { $regex: /^crm$/i } },
+            { channel: null },
+            { channel: { $exists: false } },
+          ],
+        });
+      } else {
+        filterConditions.push({
+          channel: { $regex: new RegExp(`^${channel}$`, 'i') },
+        });
+      }
     }
     if (search && search.trim()) {
-      filter.$or = [
-        { country:   { $regex: search, $options: 'i' } },
-        { pageUrl:   { $regex: search, $options: 'i' } },
-        { userAgent: { $regex: search, $options: 'i' } },
-        { channel:   { $regex: search, $options: 'i' } },
-        { source:    { $regex: search, $options: 'i' } },
-      ];
+      filterConditions.push({
+        $or: [
+          { country:   { $regex: search, $options: 'i' } },
+          { pageUrl:   { $regex: search, $options: 'i' } },
+          { userAgent: { $regex: search, $options: 'i' } },
+          { channel:   { $regex: search, $options: 'i' } },
+          { source:    { $regex: search, $options: 'i' } },
+        ],
+      });
     }
+
+    const filter = filterConditions.length > 0 ? { $and: filterConditions } : {};
 
     const [records, total] = await Promise.all([
       col.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
@@ -148,10 +173,24 @@ export async function getConsentAnalytics(req, res) {
     const db  = getDb();
     const col = db.collection(COL);
 
-    const matchFilter = {};
+    const matchConditions = [];
     if (channel && channel !== 'all' && channel !== 'all_channels') {
-      matchFilter.channel = channel;
+      if (channel.toLowerCase() === 'crm') {
+        matchConditions.push({
+          $or: [
+            { channel: { $regex: /^crm$/i } },
+            { channel: null },
+            { channel: { $exists: false } },
+          ],
+        });
+      } else {
+        matchConditions.push({
+          channel: { $regex: new RegExp(`^${channel}$`, 'i') },
+        });
+      }
     }
+
+    const matchFilter = matchConditions.length > 0 ? { $and: matchConditions } : {};
 
     const now          = new Date();
     const last30       = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -278,5 +317,33 @@ export async function deleteConsent(req, res) {
   } catch (err) {
     console.error('Delete Consent Error:', err);
     return res.status(500).json({ error: 'Failed to erase record.', code: 'SERVER_ERROR' });
+  }
+}
+
+/* ── POST /api/admin/cookies/bulk-delete  (GDPR Art.17 Bulk Erasure) ────── */
+export async function bulkDeleteConsents(req, res) {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Array of record IDs required.', code: 'INVALID_IDS' });
+    }
+
+    const validObjectIds = ids.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+    if (validObjectIds.length === 0) {
+      return res.status(400).json({ error: 'No valid record IDs provided.', code: 'INVALID_IDS' });
+    }
+
+    const db  = getDb();
+    const col = db.collection(COL);
+    const result = await col.deleteMany({ _id: { $in: validObjectIds } });
+
+    return res.status(200).json({
+      message: `${result.deletedCount} consent records permanently erased (GDPR Art.17).`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    console.error('Bulk Delete Consent Error:', err);
+    return res.status(500).json({ error: 'Failed to bulk erase records.', code: 'SERVER_ERROR' });
   }
 }

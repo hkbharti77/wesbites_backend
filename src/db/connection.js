@@ -147,6 +147,7 @@ async function initIndexes(database) {
     await leadsCol.createIndex({ emailNormalized: 1 });
     await leadsCol.createIndex({ status: 1, createdAt: -1 });
     await leadsCol.createIndex({ priority: 1, createdAt: -1 });
+    await leadsCol.createIndex({ channel: 1, createdAt: -1 });
     await leadsCol.createIndex({ dedupeHash: 1 }, { sparse: true });
     await leadsCol.createIndex({ createdAt: -1 });
 
@@ -163,6 +164,7 @@ async function initIndexes(database) {
     const cookieCol = database.collection('cookie_consents');
     await cookieCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 31536000 });
     await cookieCol.createIndex({ status: 1, createdAt: -1 });
+    await cookieCol.createIndex({ channel: 1, createdAt: -1 });
 
     // 18. privacy_requests (Data Subject Rights and statutory grievance tracking)
     const privacyCol = database.collection('privacy_requests');

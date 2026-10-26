@@ -4,6 +4,7 @@ import {
   getConsents,
   getConsentAnalytics,
   deleteConsent,
+  bulkDeleteConsents,
 } from '../controllers/cookie.controller.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
@@ -18,6 +19,7 @@ router.post('/',       recordConsent);
 router.use(authenticateAdmin);
 router.get('/',           requirePermission('cookies.read'),   getConsents);
 router.get('/analytics',  requirePermission('cookies.read'),   getConsentAnalytics);
+router.post('/bulk-delete', requirePermission('cookies.manage'), bulkDeleteConsents);
 router.delete('/:id',     requirePermission('cookies.manage'), deleteConsent);
 
 export default router;
