@@ -5,7 +5,7 @@
  * 2. RBAC publication guard (unauthorized user cannot publish)
  * 3. Public visibility boundary (draft is hidden from public API)
  * 4. HMAC preview token access
- * 5. Publishing lifecycle (v2) and immediate public visibility
+ * 5. Publisbbbhing lifecycle (v2) and immediate public visibility
  * 6. Content editing and version increment (v3)
  * 7. Revision rollback capability (restoring v2 state -> v4)
  * 8. Unpublish workflow (v5) and public 404 verification
