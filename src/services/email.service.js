@@ -230,15 +230,20 @@ ${unsubscribeUrl}`;
  */
 export async function sendLeadNotificationToAdmin({ lead }) {
   const client = getTransporter();
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'contact@gyanvaniai.com';
+  const isPortfolio = lead.channel === 'portfolio';
+
+  const adminEmail = isPortfolio
+    ? (process.env.PORTFOLIO_ADMIN_EMAIL || 'hkbharti77@gmail.com')
+    : (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
 
   if (!client) {
     console.log(`[DEV EMAIL MOCK] New Lead Notification to Admin (${adminEmail}): Channel: ${lead.channel || 'crm'}, Lead from ${lead.name} (${lead.email})`);
     return { ok: true, mocked: true };
   }
 
-  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
-  const isPortfolio = lead.channel === 'portfolio';
+  const fromEmail = isPortfolio
+    ? (process.env.PORTFOLIO_FROM_EMAIL || 'hkbharti77@gmail.com')
+    : (process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
 
   const { fromName, subject, html } = isPortfolio
     ? buildPortfolioAdminNotificationEmail({ lead, adminEmail, fromEmail })
@@ -271,7 +276,10 @@ export async function sendLeadConfirmationToUser({ lead }) {
     return { ok: true, mocked: true };
   }
 
-  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  const fromEmail = isPortfolio
+    ? (process.env.PORTFOLIO_FROM_EMAIL || 'hkbharti77@gmail.com')
+    : (process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
+
   const siteUrl = isPortfolio
     ? (process.env.PUBLIC_PORTFOLIO_URL || 'https://hkbharti77.website')
     : (process.env.PUBLIC_WEBSITE_URL || 'https://www.gyanvaniai.com');
