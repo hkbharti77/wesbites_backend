@@ -191,24 +191,31 @@ export async function subscribe(req, res) {
 
 /* ── GET /api/public/newsletter/unsubscribe/verify ────────────────────────── */
 // SAFE READ-ONLY ENDPOINT: Scanner bots pre-fetching this link will NEVER unsubscribe
-// REQUIREMENT: Strictly requires a valid cryptographically secure token. Rejects email alone to prevent harvesting.
+// Supports either cryptographically secure token OR email query parameter
 export async function verifyUnsubscribeToken(req, res) {
   try {
-    const { token } = req.query || {};
+    const { token, email } = req.query || {};
 
-    if (!token || typeof token !== 'string' || token.trim().length === 0) {
+    if ((!token || typeof token !== 'string' || token.trim().length === 0) &&
+        (!email || typeof email !== 'string' || email.trim().length === 0)) {
       return res.status(400).json({
         valid: false,
-        error: 'A valid unsubscribe token is required.',
+        error: 'A valid unsubscribe token or email address is required.',
         code: 'TOKEN_REQUIRED',
       });
     }
 
     const db = getDb();
     const col = db.collection(COL_NAME);
+    let subscriber = null;
 
-    const tokenHash = hashToken(String(token).trim());
-    const subscriber = await col.findOne({ unsubscribeTokenHash: tokenHash });
+    if (token && typeof token === 'string' && token.trim().length > 0) {
+      const tokenHash = hashToken(String(token).trim());
+      subscriber = await col.findOne({ unsubscribeTokenHash: tokenHash });
+    } else if (email && EMAIL_REGEX.test(String(email).trim())) {
+      const normalized = normalizeEmail(email);
+      subscriber = await col.findOne({ email: normalized });
+    }
 
     if (!subscriber) {
       return res.status(404).json({
@@ -232,28 +239,36 @@ export async function verifyUnsubscribeToken(req, res) {
 
 /* ── POST /api/public/newsletter/unsubscribe ─────────────────────────────── */
 // EXPLICIT ACTION ENDPOINT: Compliant with RFC 8058 One-Click list-unsubscribe
-// REQUIREMENT: Strictly requires a valid token. Never permits unsubscription via email alone.
+// Supports explicit opt-out via cryptographic token OR directly entered subscriber email
 export async function unsubscribe(req, res) {
   try {
-    const { token, reason = 'user_request' } = req.body || {};
+    const { token, email, reason = 'user_request' } = req.body || {};
     const queryToken = req.query?.token;
     const finalToken = token || queryToken;
+    const finalEmail = email || req.query?.email;
 
-    if (!finalToken || typeof finalToken !== 'string' || finalToken.trim().length === 0) {
+    if ((!finalToken || typeof finalToken !== 'string' || finalToken.trim().length === 0) &&
+        (!finalEmail || typeof finalEmail !== 'string' || finalEmail.trim().length === 0)) {
       return res.status(400).json({
-        error: 'A valid unsubscribe token is required to unsubscribe.',
+        error: 'A valid unsubscribe token or registered email address is required to unsubscribe.',
         code: 'TOKEN_REQUIRED',
       });
     }
 
     const db = getDb();
     const col = db.collection(COL_NAME);
+    let subscriber = null;
 
-    const tokenHash = hashToken(String(finalToken).trim());
-    const subscriber = await col.findOne({ unsubscribeTokenHash: tokenHash });
+    if (finalToken && typeof finalToken === 'string' && finalToken.trim().length > 0) {
+      const tokenHash = hashToken(String(finalToken).trim());
+      subscriber = await col.findOne({ unsubscribeTokenHash: tokenHash });
+    } else if (finalEmail && EMAIL_REGEX.test(String(finalEmail).trim())) {
+      const normalized = normalizeEmail(finalEmail);
+      subscriber = await col.findOne({ email: normalized });
+    }
 
     if (!subscriber) {
-      // Idempotent generic success response to prevent token enumeration
+      // Idempotent generic success response to prevent token/email enumeration
       return res.status(200).json({
         success: true,
         message: 'You have been unsubscribed from our newsletter.',

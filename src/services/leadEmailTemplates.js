@@ -522,7 +522,7 @@ export function buildPortfolioConfirmationEmail({ lead, siteUrl, whatsappUrl }) 
                   &copy; 2026 Himanshu Bharti. All rights reserved.
                 </p>
                 <p style="margin: 0 0 8px 0; font-size: 11px; color: #4b4e42;">
-                  Himanshu Bharti &bull; Systems &amp; AI Engineer &bull; New Delhi, India &bull; Direct: <a href="mailto:hkbharti77@gmail.com" style="color: #8a8f70; text-decoration: none;">hkbharti77@gmail.com</a>
+                  Himanshu Bharti &bull; Systems &amp; AI Engineer &bull; Simri Bakhtiarpur, Bihar, India &bull; Direct: <a href="mailto:hkbharti77@gmail.com" style="color: #8a8f70; text-decoration: none;">hkbharti77@gmail.com</a>
                 </p>
                 <p style="margin: 0; font-size: 10px; color: #36392f;">
                   Processed under India's Digital Personal Data Protection (DPDP) Act, 2023. Explicit consent recorded at dispatch.

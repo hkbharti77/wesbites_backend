@@ -3,7 +3,7 @@
 **Version:** 2026.1  
 **Statutory Governance:** Digital Personal Data Protection Act, 2023 (DPDP Act) | DPDP Rules, 2025 | CERT-In Directions, 2022 | Guidelines for Prevention of Dark Patterns, 2023  
 **Designated Grievance Redressal Officer:** Himanshu Bharti (`contact@gyanvaniai.com`)  
-**Jurisdiction:** New Delhi, Republic of India  
+**Official Address:** Dakbangla Chowk, Simri Bakhtiarpur, Bihar 852127, Republic of India  
 
 ---
 
