@@ -41,21 +41,54 @@ export async function recordConsent(req, res) {
         (pageUrl && pageUrl.toLowerCase().includes('portfolio') ? 'portfolio' : 'crm'));
     const resolvedSource = source || (resolvedChannel === 'portfolio' ? 'portfolio_cookie_banner' : 'crm_cookie_banner');
 
+    // Data Minimization: strip sensitive query strings and redact PII patterns from URLs before logging
+    const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const UUID_REGEX = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+    const PHONE_REGEX = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/g;
+    const TOKEN_REGEX = /\b[0-9a-fA-F]{24,64}\b|\b[A-Za-z0-9+/=]{28,}\b/g;
+    const SENSITIVE_SEGMENT = /(?:password|secret|token|bearer|apikey|api_key|credential|auth|session|ssn|aadhaar|pan)/i;
+
+    const sanitizeUrl = (raw) => {
+      if (!raw || typeof raw !== 'string') return null;
+      try {
+        const u = new URL(raw);
+        const segments = u.pathname.split('/').map(seg => {
+          if (SENSITIVE_SEGMENT.test(seg)) return '[redacted]';
+          return seg
+            .replace(EMAIL_REGEX, '[redacted]')
+            .replace(UUID_REGEX, '[redacted]')
+            .replace(PHONE_REGEX, '[redacted]')
+            .replace(TOKEN_REGEX, '[redacted]');
+        });
+        return `${u.origin}${segments.join('/')}`.slice(0, 512);
+      } catch {
+        const base = raw.split('?')[0];
+        return base
+          .replace(EMAIL_REGEX, '[redacted]')
+          .replace(UUID_REGEX, '[redacted]')
+          .replace(PHONE_REGEX, '[redacted]')
+          .replace(TOKEN_REGEX, '[redacted]')
+          .slice(0, 512);
+      }
+    };
+
     const doc = {
       status,
+      actionType: status === 'rejected' ? 'revocation' : (status === 'all' ? 'grant_all' : 'custom_selection'),
       preferences: {
         necessary: true,
         functional: Boolean(preferences.functional),
         analytics: Boolean(preferences.analytics),
+        sessionReplay: Boolean(preferences.sessionReplay),
         marketing: Boolean(preferences.marketing),
       },
       channel: resolvedChannel,
       source: resolvedSource,
-      // Visitor context — stored for legal audit trail
-      userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 512) : null,
+      // Visitor context (Data Minimized: query strings redacted from URLs)
+      userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 256) : null,
       language: typeof language === 'string' ? language.slice(0, 20) : null,
-      referrer: typeof referrer === 'string' ? referrer.slice(0, 512) : null,
-      pageUrl: typeof pageUrl === 'string' ? pageUrl.slice(0, 1024) : null,
+      referrer: sanitizeUrl(referrer),
+      pageUrl: sanitizeUrl(pageUrl),
       // Geo data — only stored if analytics consent given
       city: preferences.analytics ? (typeof city === 'string' ? city : null) : null,
       region: preferences.analytics ? (typeof region === 'string' ? region : null) : null,
