@@ -6,6 +6,7 @@ import {
   sendLeadNotificationToAdmin,
   sendLeadConfirmationToUser,
 } from '../services/email.service.js';
+import { dispatchMultiChannelLeadAlert } from '../services/leadAlert.service.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -194,9 +195,10 @@ export async function submitPublicLead(req, res) {
     userAgent,
   });
 
-  // 6. Asynchronous Notification Emails (Fire and forget; never blocks response)
+  // 6. Asynchronous Multi-Channel Alerts & Notification Emails (Fire and forget; never blocks response)
   sendLeadNotificationToAdmin({ lead: leadDoc }).catch(() => {});
   sendLeadConfirmationToUser({ lead: leadDoc }).catch(() => {});
+  dispatchMultiChannelLeadAlert({ lead: leadDoc, channel: resolvedChannel }).catch(() => {});
 
   const successMessage = resolvedChannel === 'portfolio'
     ? 'Thank you for reaching out! Your message has been received, and I will get back to you shortly.'

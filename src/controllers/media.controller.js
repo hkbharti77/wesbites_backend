@@ -44,6 +44,33 @@ function getCloudinaryClient() {
   return { ready: false, cloudName: null };
 }
 
+/**
+ * Safely destroys an asset on Cloudinary by publicId or URL
+ */
+export async function destroyCloudinaryAsset(publicIdOrUrl) {
+  if (!publicIdOrUrl || typeof publicIdOrUrl !== 'string') return false;
+
+  const { ready } = getCloudinaryClient();
+  if (!ready) return false;
+
+  let publicId = publicIdOrUrl;
+  if (publicIdOrUrl.includes('cloudinary.com')) {
+    const match = publicIdOrUrl.match(/\/upload\/(?:v\d+\/)?([^\.]+)/);
+    if (match && match[1]) {
+      publicId = match[1];
+    }
+  }
+
+  try {
+    const res = await cloudinary.uploader.destroy(publicId);
+    console.log(`[Cloudinary GC] Destroyed asset: ${publicId} (result: ${res.result})`);
+    return res.result === 'ok';
+  } catch (err) {
+    console.warn(`[Cloudinary GC Warning for ${publicId}]:`, err.message);
+    return false;
+  }
+}
+
 // Ensure local upload directory exists
 async function ensureUploadsDir() {
   try {

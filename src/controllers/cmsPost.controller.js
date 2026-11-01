@@ -3,6 +3,7 @@ import { getDb } from '../db/connection.js';
 import { logAuditEvent } from '../services/audit.service.js';
 import { slugify, calculateReadingTime, generatePreviewToken } from '../utils/slugify.js';
 import { pingIndexNowUrls } from '../services/seoEngine.service.js';
+import { destroyCloudinaryAsset } from './media.controller.js';
 
 // Helper: Ensure unique slug
 async function generateUniqueSlug(postsCol, baseText, excludeId = null) {
@@ -263,11 +264,15 @@ export async function createPost(req, res) {
       });
     }
 
-    const validStatuses = ['draft', 'review', 'published', 'archived'];
+    const validStatuses = ['draft', 'review', 'scheduled', 'published', 'archived'];
     let postStatus = validStatuses.includes(status) ? status : 'draft';
     if (published === true || published === 'true') {
       postStatus = 'published';
     }
+
+    const scheduledDate = (postStatus === 'scheduled' && (req.body.scheduledAt || req.body.publishAt))
+      ? new Date(req.body.scheduledAt || req.body.publishAt)
+      : null;
 
     // RBAC: Only users with posts.publish can directly set status to 'published'
     if (postStatus === 'published' && !req.user.isSuperAdmin && !req.user.permissions.includes('posts.publish')) {
@@ -358,6 +363,8 @@ export async function createPost(req, res) {
       },
       readingTimeMinutes: readingTime,
       version: 1,
+      scheduledAt: scheduledDate,
+      publishAt: scheduledDate,
       publishedAt: postStatus === 'published' ? new Date() : null,
       createdBy: {
         id: new ObjectId(req.user.id),
@@ -543,6 +550,14 @@ export async function updatePost(req, res) {
 
     if (updateDoc.status === 'published' && !existingPost.publishedAt) {
       updateDoc.publishedAt = new Date();
+    }
+
+    if (updateDoc.status === 'scheduled') {
+      const scheduledVal = req.body.scheduledAt || req.body.publishAt || existingPost.scheduledAt || existingPost.publishAt;
+      if (scheduledVal) {
+        updateDoc.scheduledAt = new Date(scheduledVal);
+        updateDoc.publishAt = new Date(scheduledVal);
+      }
     }
 
     await postsCol.updateOne({ _id: new ObjectId(id) }, { $set: updateDoc });
@@ -793,6 +808,13 @@ export async function deletePost(req, res) {
       postsCol.deleteOne({ _id: new ObjectId(id) }),
       revisionsCol.deleteMany({ postId: new ObjectId(id) }),
     ]);
+
+    // Garbage collect remote Cloudinary image asset if present
+    if (post.featuredImage?.cloudinaryPublicId || post.featuredImage?.url) {
+      destroyCloudinaryAsset(post.featuredImage.cloudinaryPublicId || post.featuredImage.url).catch((err) =>
+        console.warn('Post featuredImage Cloudinary cleanup warning:', err.message)
+      );
+    }
 
     await logAuditEvent({
       req,

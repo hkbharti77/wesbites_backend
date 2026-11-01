@@ -19,6 +19,11 @@ import {
 import { resolveUserPermissions } from '../services/rbac.service.js';
 import { logAuditEvent } from '../services/audit.service.js';
 import { authRateLimiter, forgotPasswordRateLimiter } from '../middleware/rateLimiter.js';
+import {
+  generateTotpSecret,
+  verifyTotpCode,
+  buildOtpAuthUri,
+} from '../utils/totp.js';
 
 export async function login(req, res) {
   try {
@@ -89,8 +94,41 @@ export async function login(req, res) {
       });
     }
 
+    // Account-Level Lockout Check (prevents distributed IP brute-force attacks)
+    if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+      const remainingSeconds = Math.ceil((new Date(user.lockedUntil).getTime() - Date.now()) / 1000);
+      const remainingMinutes = Math.max(1, Math.ceil(remainingSeconds / 60));
+      await logAuditEvent({
+        actorUserId: user._id,
+        actorEmail: user.emailNormalized,
+        action: 'AUTH_LOGIN_LOCKED',
+        targetType: 'admin_user',
+        targetId: user._id,
+        outcome: 'FAILURE',
+        metadata: { reason: 'ACCOUNT_TEMPORARILY_LOCKED', remainingSeconds },
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+      return res.status(423).json({
+        error: `Account is temporarily locked due to multiple failed login attempts. Please try again in ${remainingMinutes} minute(s).`,
+        code: 'ACCOUNT_LOCKED',
+        retryAfter: remainingSeconds,
+      });
+    }
+
     const passwordMatch = await verifyPassword(password, user.passwordHash);
     if (!passwordMatch) {
+      const failedAttempts = (user.failedLoginAttempts || 0) + 1;
+      const updateFields = {
+        failedLoginAttempts: failedAttempts,
+        lastFailedLoginAt: new Date(),
+        updatedAt: new Date(),
+      };
+      if (failedAttempts >= 5) {
+        updateFields.lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15-minute lockout
+      }
+      await usersCol.updateOne({ _id: user._id }, { $set: updateFields });
+
       await logAuditEvent({
         actorUserId: user._id,
         actorEmail: user.emailNormalized,
@@ -98,14 +136,36 @@ export async function login(req, res) {
         targetType: 'admin_user',
         targetId: user._id,
         outcome: 'FAILURE',
-        metadata: { reason: 'PASSWORD_MISMATCH' },
+        metadata: { reason: 'PASSWORD_MISMATCH', failedAttempts },
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });
       return res.status(401).json({ error: genericAuthError, code: 'INVALID_CREDENTIALS' });
     }
 
-    // Successful login: Reset rate limit counter for this key
+    // Two-Factor Authentication Check:
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      const challengeToken = generateSecureToken(32);
+      const challengeHash = hashToken(challengeToken);
+      const challengeExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes valid
+
+      const challengesCol = db.collection('admin_auth_challenges');
+      await challengesCol.insertOne({
+        userId: user._id,
+        challengeHash,
+        expiresAt: challengeExpiry,
+        createdAt: new Date(),
+        ipAddress: ip,
+      });
+
+      return res.status(200).json({
+        requires2FA: true,
+        challengeToken,
+        message: 'Two-factor authentication code required. Please enter code from authenticator app.',
+      });
+    }
+
+    // Successful login: Reset rate limit counter and failed login attempts
     await authRateLimiter.reset(rateLimitKey);
 
     // Create session in MongoDB
@@ -118,10 +178,17 @@ export async function login(req, res) {
     // Set secure HttpOnly cookie
     setSessionCookie(res, rawToken);
 
-    // Update lastLoginAt
+    // Update lastLoginAt, reset lockout counters
     await usersCol.updateOne(
       { _id: user._id },
-      { $set: { lastLoginAt: new Date(), updatedAt: new Date() } }
+      {
+        $set: {
+          lastLoginAt: new Date(),
+          updatedAt: new Date(),
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      }
     );
 
     // Resolve roles & effective permissions
@@ -373,5 +440,261 @@ export async function resetPassword(req, res) {
       error: 'Failed to reset password.',
       code: 'SERVER_ERROR',
     });
+  }
+}
+
+/**
+ * Verifies TOTP code during multi-factor login challenge
+ */
+export async function verify2FALogin(req, res) {
+  try {
+    const { challengeToken, code } = req.body || {};
+    const ip = req.ip || 'unknown';
+
+    if (!challengeToken || !code) {
+      return res.status(400).json({
+        error: 'Challenge token and 6-digit verification code are required.',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+
+    const db = getDb();
+    const challengeHash = hashToken(challengeToken);
+    const challengesCol = db.collection('admin_auth_challenges');
+
+    const challenge = await challengesCol.findOne({
+      challengeHash,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!challenge) {
+      return res.status(401).json({
+        error: 'Two-factor authentication challenge expired or invalid. Please sign in again.',
+        code: 'CHALLENGE_EXPIRED',
+      });
+    }
+
+    const usersCol = db.collection('admin_users');
+    const user = await usersCol.findOne({ _id: challenge.userId });
+
+    if (!user || user.status !== 'active' || !user.twoFactorSecret) {
+      return res.status(401).json({
+        error: 'Invalid user account state for 2FA verification.',
+        code: 'INVALID_ACCOUNT',
+      });
+    }
+
+    const isValid = verifyTotpCode(user.twoFactorSecret, code);
+    if (!isValid) {
+      await logAuditEvent({
+        actorUserId: user._id,
+        actorEmail: user.emailNormalized,
+        action: 'AUTH_2FA_VERIFICATION_FAILED',
+        targetType: 'admin_user',
+        targetId: user._id,
+        outcome: 'FAILURE',
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+      return res.status(401).json({
+        error: 'Invalid two-factor code. Please check your authenticator app and try again.',
+        code: 'INVALID_2FA_CODE',
+      });
+    }
+
+    // Single-use challenge: delete after success
+    await challengesCol.deleteOne({ _id: challenge._id });
+
+    // Create session in MongoDB
+    const { rawToken, expiresAt } = await createSession({
+      userId: user._id,
+      ipAddress: ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    // Set secure HttpOnly cookie
+    setSessionCookie(res, rawToken);
+
+    // Update lastLoginAt, reset lockout counters
+    await usersCol.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          lastLoginAt: new Date(),
+          updatedAt: new Date(),
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      }
+    );
+
+    const { roles, permissions, isSuperAdmin } = await resolveUserPermissions(user);
+
+    await logAuditEvent({
+      actorUserId: user._id,
+      actorEmail: user.emailNormalized,
+      action: 'AUTH_LOGIN_2FA_SUCCESS',
+      targetType: 'admin_user',
+      targetId: user._id,
+      outcome: 'SUCCESS',
+      ipAddress: ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.emailNormalized,
+        roles,
+        permissions,
+        isSuperAdmin,
+        twoFactorEnabled: true,
+      },
+      expiresAt: expiresAt.toISOString(),
+    });
+  } catch (err) {
+    console.error('Verify 2FA Login Controller Error:', err);
+    return res.status(500).json({ error: 'Failed to verify two-factor authentication.', code: 'SERVER_ERROR' });
+  }
+}
+
+/**
+ * Initializes TOTP setup: generates secret and returns otpauth URL
+ */
+export async function setup2FA(req, res) {
+  try {
+    const db = getDb();
+    const usersCol = db.collection('admin_users');
+    const user = await usersCol.findOne({ _id: new ObjectId(req.user.id) });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.', code: 'USER_NOT_FOUND' });
+    }
+
+    const secret = generateTotpSecret(20);
+    const otpAuthUri = buildOtpAuthUri({
+      issuer: 'GyanVaniAi Admin',
+      accountName: user.emailNormalized,
+      secret,
+    });
+
+    // Store pending 2FA secret temporarily
+    await usersCol.updateOne(
+      { _id: user._id },
+      { $set: { pendingTwoFactorSecret: secret, updatedAt: new Date() } }
+    );
+
+    return res.status(200).json({
+      secret,
+      otpAuthUri,
+      manualEntryKey: secret.match(/.{1,4}/g)?.join(' ') || secret,
+    });
+  } catch (err) {
+    console.error('Setup 2FA Controller Error:', err);
+    return res.status(500).json({ error: 'Failed to initialize 2FA setup.', code: 'SERVER_ERROR' });
+  }
+}
+
+/**
+ * Verifies code against pending secret and permanently activates 2FA
+ */
+export async function enable2FA(req, res) {
+  try {
+    const { code } = req.body || {};
+    if (!code) {
+      return res.status(400).json({ error: '6-digit code is required to enable 2FA.', code: 'VALIDATION_ERROR' });
+    }
+
+    const db = getDb();
+    const usersCol = db.collection('admin_users');
+    const user = await usersCol.findOne({ _id: new ObjectId(req.user.id) });
+
+    if (!user || !user.pendingTwoFactorSecret) {
+      return res.status(400).json({ error: 'No pending 2FA setup found. Call /setup first.', code: 'NO_PENDING_2FA' });
+    }
+
+    const isValid = verifyTotpCode(user.pendingTwoFactorSecret, code);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid 2FA code. Please verify the code on your app.', code: 'INVALID_CODE' });
+    }
+
+    await usersCol.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          twoFactorEnabled: true,
+          twoFactorSecret: user.pendingTwoFactorSecret,
+          twoFactorEnabledAt: new Date(),
+          updatedAt: new Date(),
+        },
+        $unset: { pendingTwoFactorSecret: '' },
+      }
+    );
+
+    await logAuditEvent({
+      actorUserId: user._id,
+      actorEmail: user.emailNormalized,
+      action: 'AUTH_2FA_ENABLED',
+      targetType: 'admin_user',
+      targetId: user._id,
+      outcome: 'SUCCESS',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return res.status(200).json({ success: true, message: 'Two-factor authentication successfully enabled!' });
+  } catch (err) {
+    console.error('Enable 2FA Controller Error:', err);
+    return res.status(500).json({ error: 'Failed to enable 2FA.', code: 'SERVER_ERROR' });
+  }
+}
+
+/**
+ * Disables 2FA (requires current password confirmation)
+ */
+export async function disable2FA(req, res) {
+  try {
+    const { password } = req.body || {};
+    if (!password) {
+      return res.status(400).json({ error: 'Current password is required to disable 2FA.', code: 'VALIDATION_ERROR' });
+    }
+
+    const db = getDb();
+    const usersCol = db.collection('admin_users');
+    const user = await usersCol.findOne({ _id: new ObjectId(req.user.id) });
+
+    const passwordMatch = await verifyPassword(password, user.passwordHash);
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Incorrect password. 2FA cannot be disabled.', code: 'INVALID_PASSWORD' });
+    }
+
+    await usersCol.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          twoFactorEnabled: false,
+          updatedAt: new Date(),
+        },
+        $unset: { twoFactorSecret: '', pendingTwoFactorSecret: '' },
+      }
+    );
+
+    await logAuditEvent({
+      actorUserId: user._id,
+      actorEmail: user.emailNormalized,
+      action: 'AUTH_2FA_DISABLED',
+      targetType: 'admin_user',
+      targetId: user._id,
+      outcome: 'SUCCESS',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return res.status(200).json({ success: true, message: 'Two-factor authentication disabled.' });
+  } catch (err) {
+    console.error('Disable 2FA Controller Error:', err);
+    return res.status(500).json({ error: 'Failed to disable 2FA.', code: 'SERVER_ERROR' });
   }
 }

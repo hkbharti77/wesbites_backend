@@ -1,5 +1,6 @@
 import { getDb } from '../db/connection.js';
 import { logAuditEvent } from '../services/audit.service.js';
+import { runDataRetentionCleanup } from '../scripts/enforce-data-retention.js';
 
 export async function getSettings(req, res) {
   try {
@@ -20,7 +21,7 @@ export async function getSettings(req, res) {
         cookieSameSite: 'Lax',
         cookieHttpOnly: true,
         cookieSecure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
-        mfaSupported: false, // Extensible placeholder; not claiming active until TOTP is tested
+        mfaSupported: true, // RFC 6238 TOTP Two-Factor Authentication fully active
       },
       system: {
         nodeVersion: process.version,
@@ -153,6 +154,21 @@ export async function getPublicTheme(req, res) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to retrieve theme.', code: 'SERVER_ERROR' });
+  }
+}
+
+/* ── POST /api/admin/settings/retention/run (Statutory DPDP cleanup execution) ── */
+export async function triggerDataRetentionCleanup(req, res) {
+  try {
+    await runDataRetentionCleanup();
+    return res.status(200).json({
+      success: true,
+      message: 'Statutory DPDP data retention and purpose-exhaustion purge executed successfully.',
+      executedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('Trigger Retention Error:', err);
+    return res.status(500).json({ error: 'Failed to execute data retention cleanup.', code: 'SERVER_ERROR' });
   }
 }
 

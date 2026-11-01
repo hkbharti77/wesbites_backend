@@ -29,6 +29,10 @@ import { getPublicCategories, getPublicTags, getBlogSitemapXmlEndpoint, getBlogR
 import { getPublicTheme } from './controllers/settings.controller.js';
 import { publicSiteMediaRoutes, adminSiteMediaRoutes } from './routes/siteMedia.routes.js';
 import { publicPrivacyRequestRoutes, adminPrivacyRequestRoutes } from './routes/privacyRequest.routes.js';
+import { securityHeadersMiddleware } from './middleware/securityHeaders.js';
+import { generateOgImage } from './controllers/ogImage.controller.js';
+import { startScheduledPublishWorker } from './services/publisher.service.js';
+import { runDataRetentionCleanup } from './scripts/enforce-data-retention.js';
 
 dotenv.config();
 
@@ -37,6 +41,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// Enable reverse proxy trust (preserves client IP for rate limiting, DPDP consent, and audit logs)
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 5000;
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -102,6 +109,9 @@ app.use(cors({
   exposedHeaders: ['X-CSRF-Token'],
   optionsSuccessStatus: 200,
 }));
+
+// Apply production HTTP security headers (Helmet / OWASP compliant)
+app.use(securityHeadersMiddleware);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -176,6 +186,7 @@ app.use('/api/public/posts', publicPostRoutes);
 app.get('/api/public/categories', getPublicCategories);
 app.get('/api/public/tags', getPublicTags);
 app.get('/api/public/site-settings/theme', getPublicTheme);
+app.get('/api/public/og-image', generateOgImage);
 
 // 404 handler
 app.use((req, res) => {
@@ -198,6 +209,13 @@ app.use((err, req, res, _next) => {
 // Start server function (exported for testing or programmatic boot)
 export async function startServer(customPort = PORT) {
   await connectDB();
+
+  // Initialize automated background workers
+  startScheduledPublishWorker();
+  setInterval(() => {
+    runDataRetentionCleanup().catch((err) => console.error('[Automated Retention Cleanup Error]:', err.message));
+  }, 24 * 60 * 60 * 1000).unref();
+
   return new Promise((resolve, reject) => {
     const server = app.listen(customPort, '0.0.0.0', () => {
       console.log(`🚀 GyanVaniAi Admin Backend running on http://0.0.0.0:${customPort}`);
