@@ -46,11 +46,9 @@ async function run() {
   const userResult = await sendLeadConfirmationToUser({ lead: sampleLead });
   console.log('User Dispatch Result:', userResult);
 
-  console.log(`\n[Step 3] Sending Admin Inquest Alert for ${targetRecipient}...`);
-  const originalAdminEmail = process.env.PORTFOLIO_ADMIN_EMAIL;
-  process.env.PORTFOLIO_ADMIN_EMAIL = targetRecipient;
+  const adminRecipient = process.env.PORTFOLIO_ADMIN_EMAIL || 'hkbharti77@gmail.com';
+  console.log(`\n[Step 3] Sending Admin Inquest Alert to ${adminRecipient}...`);
   const adminResult = await sendLeadNotificationToAdmin({ lead: sampleLead });
-  process.env.PORTFOLIO_ADMIN_EMAIL = originalAdminEmail;
   console.log('Admin Dispatch Result:', adminResult);
 
   console.log('\n=== All test dispatches completed successfully! ===');

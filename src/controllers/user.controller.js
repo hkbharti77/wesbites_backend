@@ -70,6 +70,7 @@ export async function getUsers(req, res) {
         email: u.emailNormalized,
         status: u.status,
         roles: userRoles,
+        roleIds: (u.roleIds || []).map(r => r.toString()),
         lastLoginAt: u.lastLoginAt || null,
         passwordChangedAt: u.passwordChangedAt || null,
         createdAt: u.createdAt,
@@ -119,6 +120,7 @@ export async function getUserById(req, res) {
         email: user.emailNormalized,
         status: user.status,
         roles,
+        roleIds: (user.roleIds || []).map(r => r.toString()),
         permissions,
         isSuperAdmin,
         lastLoginAt: user.lastLoginAt,
@@ -250,7 +252,7 @@ export async function createUser(req, res) {
 export async function updateUser(req, res) {
   try {
     const { id } = req.params;
-    const { name, roleIds, status, password } = req.body || {};
+    const { name, email, roleIds, status, password } = req.body || {};
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: 'Invalid user ID format.', code: 'INVALID_ID' });
@@ -280,8 +282,30 @@ export async function updateUser(req, res) {
 
     const updateFields = { updatedAt: new Date() };
 
-    if (name && typeof name === 'string') {
+    if (name && typeof name === 'string' && name.trim()) {
       updateFields.name = name.trim();
+    }
+
+    if (email && typeof email === 'string' && email.trim()) {
+      const emailNormalized = normalizeEmail(email);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalized)) {
+        return res.status(400).json({
+          error: 'Please provide a valid email address.',
+          code: 'INVALID_EMAIL',
+        });
+      }
+
+      const duplicateUser = await usersCol.findOne({
+        emailNormalized,
+        _id: { $ne: new ObjectId(id) },
+      });
+      if (duplicateUser) {
+        return res.status(409).json({
+          error: 'Another user with this email address already exists.',
+          code: 'EMAIL_ALREADY_EXISTS',
+        });
+      }
+      updateFields.emailNormalized = emailNormalized;
     }
 
     // Role updates & privilege escalation checks
@@ -318,9 +342,10 @@ export async function updateUser(req, res) {
         }
       }
 
-      // Check if this action demotes a Super Admin
-      const isDemoting = !assignsSuperAdmin;
-      await ensureLastSuperAdminProtected(id, isDemoting);
+      // Check if this action demotes a Super Admin (only if user currently is a super admin)
+      if (targetIsSuperAdmin && !assignsSuperAdmin) {
+        await ensureLastSuperAdminProtected(id, true);
+      }
 
       updateFields.roleIds = roleObjectIds;
     }
@@ -364,16 +389,31 @@ export async function updateUser(req, res) {
       userAgent: req.headers['user-agent'],
     });
 
+    const updatedUser = await usersCol.findOne({ _id: new ObjectId(id) });
+    const { roles } = await resolveUserPermissions(updatedUser);
+
     return res.status(200).json({
       success: true,
       message: 'User profile updated successfully.',
+      user: {
+        id: updatedUser._id.toString(),
+        name: updatedUser.name,
+        email: updatedUser.emailNormalized,
+        status: updatedUser.status,
+        roles,
+        roleIds: (updatedUser.roleIds || []).map(r => r.toString()),
+        updatedAt: updatedUser.updatedAt,
+      },
     });
   } catch (err) {
     if (err.code === 'LAST_SUPER_ADMIN_PROTECTED') {
       return res.status(400).json({ error: err.message, code: err.code });
     }
     console.error('Update User Controller Error:', err);
-    return res.status(500).json({ error: 'Failed to update administrative user.', code: 'SERVER_ERROR' });
+    return res.status(err.statusCode || 500).json({
+      error: err.message || 'Failed to update administrative user.',
+      code: err.code || 'SERVER_ERROR',
+    });
   }
 }
 

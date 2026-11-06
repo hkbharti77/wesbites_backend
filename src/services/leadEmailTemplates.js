@@ -816,3 +816,138 @@ Processed under India's Digital Personal Data Protection (DPDP) Act, 2023.
 
   return { fromName, replyTo, subject, html, text };
 }
+
+/**
+ * 5. Lead Direct Outreach / Reply Email Template
+ * Dispatched when an administrator responds to a lead to discuss the project and requirements.
+ * Dynamically styled based on lead.channel ('portfolio' vs 'crm').
+ */
+export function buildLeadOutreachEmail({ lead, subject, message, authorName, authorEmail }) {
+  const isPortfolio = lead.channel === 'portfolio';
+  const fromName = isPortfolio
+    ? (authorName ? `${authorName} | Systems Studio` : 'Himanshu Bharti | Systems Studio')
+    : (authorName ? `${authorName} via GyanVaniAi` : (process.env.SMTP_FROM_NAME || 'GyanVaniAi'));
+
+  const replyTo = isPortfolio
+    ? (authorEmail || process.env.PORTFOLIO_ADMIN_EMAIL || 'hkbharti77@gmail.com')
+    : (authorEmail || process.env.ADMIN_NOTIFICATION_EMAIL || process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
+
+  const formattedBody = (message || '')
+    .split(/\n\n+/)
+    .map(para => `<p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.65; color: ${isPortfolio ? '#e2e5d8' : '#334155'};">${para.replace(/\n/g, '<br />')}</p>`)
+    .join('');
+
+  const brandTitle = isPortfolio ? 'Himanshu Bharti Systems Studio' : 'GyanVaniAi Technologies';
+  const brandSub = isPortfolio ? 'Direct Engineering & Architecture Consultation' : 'Enterprise AI CRM & Software Engineering';
+  const brandBg = isPortfolio ? '#131411' : '#ffffff';
+  const pageBg = isPortfolio ? '#0b0c09' : '#f8fafc';
+  const textColor = isPortfolio ? '#f2f0e6' : '#0f172a';
+  const headerBg = isPortfolio ? '#1a1c17' : '#0f172a';
+  const headerBorder = isPortfolio ? '#8a8f70' : '#4f46e5';
+  const quoteBg = isPortfolio ? '#1e211a' : '#f1f5f9';
+  const quoteBorder = isPortfolio ? '#c9a96e' : '#6366f1';
+  const quoteText = isPortfolio ? '#b5baa6' : '#64748b';
+
+  const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${subject}</title>
+</head>
+<body style="margin: 0; padding: 28px 0; background-color: ${pageBg}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: ${textColor};">
+  <center>
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: ${pageBg};">
+      <tr>
+        <td align="center" style="padding: 12px;">
+          <table border="0" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background-color: ${brandBg}; border: 1px solid ${isPortfolio ? '#2d3027' : '#e2e8f0'}; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,0.15);">
+            
+            <!-- Header -->
+            <tr>
+              <td style="background-color: ${headerBg}; border-bottom: 3px solid ${headerBorder}; padding: 26px 32px;">
+                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td>
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: ${isPortfolio ? '#c9a96e' : '#818cf8'}; margin-bottom: 4px;">
+                        ${brandTitle}
+                      </div>
+                      <div style="font-size: 13px; color: #94a3b8;">
+                        ${brandSub}
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Body Content -->
+            <tr>
+              <td style="padding: 32px 32px 24px 32px;">
+                <div style="font-size: 16px; font-weight: 600; margin-bottom: 18px; color: ${textColor};">
+                  Hi ${lead.name || 'there'},
+                </div>
+
+                <!-- Admin Message -->
+                <div style="margin-bottom: 24px;">
+                  ${formattedBody}
+                </div>
+
+                <!-- Original Reference Card -->
+                ${lead.message ? `
+                <div style="margin: 28px 0; padding: 16px 20px; background-color: ${quoteBg}; border-left: 4px solid ${quoteBorder}; border-radius: 4px;">
+                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: ${quoteText}; margin-bottom: 6px;">
+                    In reference to your inquiry (${new Date(lead.createdAt).toLocaleDateString()}):
+                  </div>
+                  <div style="font-size: 13px; line-height: 1.5; color: ${quoteText}; font-style: italic;">
+                    "${lead.message.length > 300 ? lead.message.slice(0, 300) + '...' : lead.message}"
+                  </div>
+                </div>
+                ` : ''}
+
+                <!-- Sign-off -->
+                <div style="margin-top: 28px; padding-top: 20px; border-top: 1px solid ${isPortfolio ? '#262920' : '#f1f5f9'};">
+                  <div style="font-size: 14px; color: ${isPortfolio ? '#a4a899' : '#64748b'};">Best regards,</div>
+                  <div style="font-size: 16px; font-weight: 700; color: ${textColor}; margin-top: 4px;">${authorName || 'Solutions Engineering Team'}</div>
+                  <div style="font-size: 13px; color: ${isPortfolio ? '#c9a96e' : '#6366f1'}; margin-top: 2px;">${brandTitle}</div>
+                  <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">
+                    Email: <a href="mailto:${replyTo}" style="color: ${isPortfolio ? '#c9a96e' : '#6366f1'}; text-decoration: none;">${replyTo}</a>
+                  </div>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="background-color: ${isPortfolio ? '#0e0f0c' : '#f8fafc'}; border-top: 1px solid ${isPortfolio ? '#21231c' : '#e2e8f0'}; padding: 18px 32px; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+                <p style="margin: 0;">
+                  You received this email because you initiated contact regarding project inquiries on our website.
+                  You can reply directly to this message to continue the conversation.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>`;
+
+  const text = `
+Hi ${lead.name || 'there'},
+
+${message}
+
+--- IN REFERENCE TO YOUR INQUIRY ---
+Date: ${new Date(lead.createdAt).toLocaleDateString()}
+"${lead.message || ''}"
+
+Best regards,
+${authorName || 'Solutions Engineering Team'}
+${brandTitle}
+Email: ${replyTo}
+`.trim();
+
+  return { fromName, replyTo, subject, html, text };
+}

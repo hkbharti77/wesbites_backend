@@ -28,14 +28,15 @@ export function csrfMiddleware(req, res, next) {
     return next();
   }
 
-  // Exempt initial unauthenticated authentication requests (login, forgot, reset)
-  // and public visitor endpoints (/api/public/) which carry no ambient session
+  // Exempt initial unauthenticated authentication requests (login, forgot, reset),
+  // inbound webhooks (/api/webhooks/), and public visitor endpoints (/api/public/) which carry no ambient session
   const isAuthPreFlight =
     req.path === '/login' ||
     req.originalUrl.includes('/auth/login') ||
     req.originalUrl.includes('/auth/forgot-password') ||
     req.originalUrl.includes('/auth/reset-password') ||
-    req.originalUrl.includes('/api/public/');
+    req.originalUrl.includes('/api/public/') ||
+    req.originalUrl.includes('/webhooks');
 
   if (isAuthPreFlight) {
     return next();

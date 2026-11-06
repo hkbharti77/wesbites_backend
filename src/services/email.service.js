@@ -5,6 +5,7 @@ import {
   buildCrmAdminNotificationEmail,
   buildPortfolioConfirmationEmail,
   buildCrmConfirmationEmail,
+  buildLeadOutreachEmail,
 } from './leadEmailTemplates.js';
 
 dotenv.config();
@@ -242,7 +243,7 @@ export async function sendLeadNotificationToAdmin({ lead }) {
   }
 
   const fromEmail = isPortfolio
-    ? (process.env.PORTFOLIO_FROM_EMAIL || 'hkbharti77@gmail.com')
+    ? (process.env.PORTFOLIO_FROM_EMAIL || 'no-reply@hkbharti77.website')
     : (process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
 
   const { fromName, subject, html } = isPortfolio
@@ -253,6 +254,7 @@ export async function sendLeadNotificationToAdmin({ lead }) {
     await client.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to: adminEmail,
+      replyTo: lead.email,
       subject,
       html,
     });
@@ -277,7 +279,7 @@ export async function sendLeadConfirmationToUser({ lead }) {
   }
 
   const fromEmail = isPortfolio
-    ? (process.env.PORTFOLIO_FROM_EMAIL || 'hkbharti77@gmail.com')
+    ? (process.env.PORTFOLIO_FROM_EMAIL || 'no-reply@hkbharti77.website')
     : (process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
 
   const siteUrl = isPortfolio
@@ -304,3 +306,61 @@ export async function sendLeadConfirmationToUser({ lead }) {
     return { ok: false, error: err.message };
   }
 }
+
+/**
+ * Dispatch personalized direct outreach / project discussion email to the lead prospect.
+ * Features bilateral HTML formatting, custom subject/body, and reply-to configuration.
+ */
+export async function sendLeadOutreachReplyEmail({ lead, to, subject, message, authorName, authorEmail }) {
+  const client = getTransporter();
+  const recipientEmail = to || lead.email;
+  const isPortfolio = lead.channel === 'portfolio';
+
+  if (!recipientEmail) {
+    return { ok: false, error: 'Recipient email address is missing.' };
+  }
+
+  const fromEmail = isPortfolio
+    ? (process.env.PORTFOLIO_FROM_EMAIL || 'no-reply@hkbharti77.website')
+    : (process.env.SMTP_FROM_EMAIL || 'contact@gyanvaniai.com');
+
+  const { fromName, replyTo, html, text } = buildLeadOutreachEmail({
+    lead,
+    subject,
+    message,
+    authorName,
+    authorEmail,
+  });
+
+  // Deterministic RFC-compliant Message-ID for two-way conversation threading
+  const leadIdStr = lead._id ? lead._id.toString() : 'new';
+  const domain = isPortfolio ? 'hkbharti77.website' : (process.env.SMTP_DOMAIN || 'gyanvaniai.com');
+  const generatedMessageId = `<lead.${leadIdStr}.${Date.now()}@${domain}>`;
+
+  if (!client) {
+    console.log(`[DEV EMAIL MOCK] Lead Outreach Reply (${lead.channel || 'crm'}) to ${recipientEmail}: "${subject}" (Message-ID: ${generatedMessageId})`);
+    return { ok: true, mocked: true, messageId: generatedMessageId, fromEmail };
+  }
+
+  try {
+    const info = await client.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: recipientEmail,
+      replyTo: replyTo || fromEmail,
+      subject,
+      html,
+      text,
+      messageId: generatedMessageId,
+      headers: {
+        'X-Lead-ID': leadIdStr,
+        'X-Lead-Channel': lead.channel || 'crm',
+        'X-Entity-Ref-ID': leadIdStr,
+      },
+    });
+    return { ok: true, messageId: info.messageId || generatedMessageId, fromEmail };
+  } catch (err) {
+    console.error('Failed to send lead outreach reply email:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+

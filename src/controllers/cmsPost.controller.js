@@ -4,6 +4,7 @@ import { logAuditEvent } from '../services/audit.service.js';
 import { slugify, calculateReadingTime, generatePreviewToken } from '../utils/slugify.js';
 import { pingIndexNowUrls } from '../services/seoEngine.service.js';
 import { destroyCloudinaryAsset } from './media.controller.js';
+import { invalidateCacheByPrefix } from '../services/cache.service.js';
 
 // Helper: Ensure unique slug
 async function generateUniqueSlug(postsCol, baseText, excludeId = null) {
@@ -407,6 +408,8 @@ export async function createPost(req, res) {
       metadata: { slug: newPost.slug, status: newPost.status, version: 1 },
     });
 
+    invalidateCacheByPrefix('cms:').catch(() => {});
+
     return res.status(201).json({
       message: 'Post created successfully.',
       post: { id: postId.toString(), ...newPost },
@@ -595,6 +598,8 @@ export async function updatePost(req, res) {
       metadata: { version: nextVersion, changeSummary },
     });
 
+    invalidateCacheByPrefix('cms:').catch(() => {});
+
     return res.status(200).json({
       message: 'Post updated successfully.',
       post: { id, ...existingPost, ...updateDoc },
@@ -671,6 +676,8 @@ export async function publishPost(req, res) {
         'https://www.gyanvaniai.com/rss.xml',
       ]).catch(() => {});
     }
+
+    invalidateCacheByPrefix('cms:').catch(() => {});
 
     return res.status(200).json({
       message: 'Post published successfully to the live website.',
@@ -776,6 +783,8 @@ export async function unpublishPost(req, res) {
       metadata: { slug: post.slug, version: nextVersion },
     });
 
+    invalidateCacheByPrefix('cms:').catch(() => {});
+
     return res.status(200).json({
       message: 'Post unpublished successfully. Content is no longer accessible to public visitors.',
       status: 'draft',
@@ -824,6 +833,8 @@ export async function deletePost(req, res) {
       targetName: post.title,
       metadata: { slug: post.slug },
     });
+
+    invalidateCacheByPrefix('cms:').catch(() => {});
 
     return res.status(200).json({ message: 'Post and associated revision history deleted successfully.' });
   } catch (err) {
@@ -944,6 +955,8 @@ export async function rollbackRevision(req, res) {
       targetName: restoredDoc.title,
       metadata: { restoredFromVersion: targetVersion, newVersion: nextVersion },
     });
+
+    invalidateCacheByPrefix('cms:').catch(() => {});
 
     return res.status(200).json({
       message: `Successfully rolled back post to version ${targetVersion}.`,

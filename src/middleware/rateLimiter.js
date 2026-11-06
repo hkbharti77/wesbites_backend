@@ -1,4 +1,5 @@
 import { getDb } from '../db/connection.js';
+import { getRedisClient, isRedisHealthy } from '../db/redis.js';
 
 export class MemoryRateLimiter {
   constructor(windowMs = 15 * 60 * 1000, maxRequests = 10) {
@@ -108,28 +109,106 @@ export class MongoRateLimiter {
 }
 
 /**
+ * Redis-backed sliding window rate limiter for high-concurrency deployments.
+ * Uses Redis Sorted Sets (ZSET) with atomic pipelines for sub-millisecond execution.
+ */
+export class RedisRateLimiter {
+  constructor(windowMs = 15 * 60 * 1000, maxRequests = 10) {
+    this.windowMs = windowMs;
+    this.maxRequests = maxRequests;
+  }
+
+  async isRateLimited(key) {
+    try {
+      if (!isRedisHealthy()) {
+        return null; // Fallback signal
+      }
+      const client = getRedisClient();
+      if (!client) return null;
+
+      const redisKey = `ratelimit:${key}`;
+      const now = Date.now();
+      const windowStart = now - this.windowMs;
+      const expireSeconds = Math.ceil(this.windowMs / 1000) * 2;
+
+      // Pipeline operations atomically
+      const pipeline = client.pipeline();
+      pipeline.zremrangebyscore(redisKey, 0, windowStart);
+      pipeline.zcard(redisKey);
+      pipeline.zadd(redisKey, now, `${now}-${Math.random()}`);
+      pipeline.expire(redisKey, expireSeconds);
+
+      const results = await pipeline.exec();
+      if (!results || !results[1]) return null;
+
+      const count = results[1][1] || 0;
+      return count >= this.maxRequests;
+    } catch (err) {
+      console.warn('RedisRateLimiter error, falling back:', err.message);
+      return null;
+    }
+  }
+
+  async reset(key) {
+    try {
+      if (!isRedisHealthy()) return;
+      const client = getRedisClient();
+      if (client) {
+        await client.del(`ratelimit:${key}`);
+      }
+    } catch (err) {
+      console.warn('RedisRateLimiter reset error:', err.message);
+    }
+  }
+}
+
+/**
  * Hybrid Rate Limiter:
- * Uses MongoRateLimiter if RATE_LIMIT_STORAGE === 'mongodb', otherwise MemoryRateLimiter.
+ * Uses RedisRateLimiter if RATE_LIMIT_STORAGE === 'redis' (with automatic MongoDB fallback),
+ * MongoRateLimiter if RATE_LIMIT_STORAGE === 'mongodb',
+ * otherwise MemoryRateLimiter.
  */
 export class HybridRateLimiter {
   constructor(windowMs, maxRequests) {
     this.memoryLimiter = new MemoryRateLimiter(windowMs, maxRequests);
     this.mongoLimiter = new MongoRateLimiter(windowMs, maxRequests);
+    this.redisLimiter = new RedisRateLimiter(windowMs, maxRequests);
     this.windowMs = windowMs;
     this.maxRequests = maxRequests;
   }
 
-  isRateLimited(key) {
-    if (process.env.RATE_LIMIT_STORAGE === 'mongodb') {
+  async isRateLimited(key) {
+    const storage = process.env.RATE_LIMIT_STORAGE;
+
+    if (storage === 'redis') {
+      const redisResult = await this.redisLimiter.isRateLimited(key);
+      if (redisResult !== null) {
+        return redisResult;
+      }
+      // If Redis is unreachable or errored, seamlessly fallback to MongoDB
       return this.mongoLimiter.isRateLimited(key);
     }
+
+    if (storage === 'mongodb') {
+      return this.mongoLimiter.isRateLimited(key);
+    }
+
     return this.memoryLimiter.isRateLimited(key);
   }
 
-  reset(key) {
-    if (process.env.RATE_LIMIT_STORAGE === 'mongodb') {
+  async reset(key) {
+    const storage = process.env.RATE_LIMIT_STORAGE;
+
+    if (storage === 'redis') {
+      await this.redisLimiter.reset(key);
+      await this.mongoLimiter.reset(key);
+      return this.memoryLimiter.reset(key);
+    }
+
+    if (storage === 'mongodb') {
       return this.mongoLimiter.reset(key);
     }
+
     return this.memoryLimiter.reset(key);
   }
 }

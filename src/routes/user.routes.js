@@ -17,6 +17,7 @@ router.get('/', requirePermission('users.read'), getUsers);
 router.get('/:id', requirePermission('users.read'), getUserById);
 router.post('/', requirePermission('users.create'), createUser);
 router.patch('/:id', requirePermission('users.update'), updateUser);
+router.put('/:id', requirePermission('users.update'), updateUser);
 router.delete('/:id', requirePermission('users.deactivate'), deleteUser);
 
 export default router;

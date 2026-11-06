@@ -78,7 +78,10 @@ export async function ensureLastSuperAdminProtected(targetUserId, willBeDeactiva
   const otherSuperAdminsCount = await usersCol.countDocuments({
     _id: { $ne: targetId },
     status: 'active',
-    roleIds: superAdminRole._id,
+    $or: [
+      { roleIds: superAdminRole._id },
+      { roleIds: superAdminRole._id.toString() },
+    ],
   });
 
   if (otherSuperAdminsCount === 0) {

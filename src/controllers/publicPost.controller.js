@@ -6,6 +6,7 @@ import {
   generateBlogRssXml,
   buildPostCompleteSchema,
 } from '../services/seoEngine.service.js';
+import { getOrSetCache } from '../services/cache.service.js';
 
 export async function getPublicPosts(req, res) {
   try {
@@ -231,11 +232,11 @@ export async function getPublicPostBySlug(req, res) {
 }
 
 /**
- * Public XML Sitemap Endpoint (Dynamic MongoDB-backed)
+ * Public XML Sitemap Endpoint (Dynamic MongoDB-backed with Redis Caching)
  */
 export async function getBlogSitemapXmlEndpoint(req, res) {
   try {
-    const xml = await generateBlogSitemapXml();
+    const xml = await getOrSetCache('cms:sitemap:xml', 1800, () => generateBlogSitemapXml());
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=7200'); // Cache for 1-2 hours
     return res.status(200).send(xml);
@@ -250,7 +251,7 @@ export async function getBlogSitemapXmlEndpoint(req, res) {
  */
 export async function getBlogRssXmlEndpoint(req, res) {
   try {
-    const rss = await generateBlogRssXml();
+    const rss = await getOrSetCache('cms:rss:xml', 900, () => generateBlogRssXml());
     res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=1800, s-maxage=3600');
     return res.status(200).send(rss);
@@ -293,30 +294,33 @@ export async function getPostSchemaEndpoint(req, res) {
 export async function getPublicCategories(req, res) {
   try {
     const { channel } = req.query;
-    const db = getDb();
-    const postsCol = db.collection('cms_posts');
-
     const targetChannel = channel || 'crm';
-    const match = { status: 'published' };
-    if (targetChannel && targetChannel !== 'all') {
-      match.$or = [{ channel: targetChannel }, { channel: 'all' }];
-    }
 
-    // Aggregate active categories from published posts
-    const categoryCounts = await postsCol
-      .aggregate([
-        { $match: match },
-        { $group: { _id: '$category', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ])
-      .toArray();
+    const categories = await getOrSetCache(`cms:categories:${targetChannel}`, 300, async () => {
+      const db = getDb();
+      const postsCol = db.collection('cms_posts');
 
-    return res.status(200).json({
-      categories: categoryCounts.map(c => ({
+      const match = { status: 'published' };
+      if (targetChannel && targetChannel !== 'all') {
+        match.$or = [{ channel: targetChannel }, { channel: 'all' }];
+      }
+
+      // Aggregate active categories from published posts
+      const categoryCounts = await postsCol
+        .aggregate([
+          { $match: match },
+          { $group: { _id: '$category', count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+        ])
+        .toArray();
+
+      return categoryCounts.map(c => ({
         name: c._id || 'General',
         count: c.count,
-      })),
+      }));
     });
+
+    return res.status(200).json({ categories });
   } catch (err) {
     console.error('Public Get Categories Error:', err);
     return res.status(500).json({ error: 'Failed to retrieve categories.', code: 'SERVER_ERROR' });
@@ -326,17 +330,22 @@ export async function getPublicCategories(req, res) {
 export async function getPublicTags(req, res) {
   try {
     const { channel } = req.query;
-    const db = getDb();
-    const postsCol = db.collection('cms_posts');
-
     const targetChannel = channel || 'crm';
-    const filter = { status: 'published' };
-    if (targetChannel && targetChannel !== 'all') {
-      filter.$or = [{ channel: targetChannel }, { channel: 'all' }];
-    }
 
-    const tags = await postsCol.distinct('tags', filter);
-    return res.status(200).json({ tags: tags.filter(Boolean).slice(0, 30) });
+    const tags = await getOrSetCache(`cms:tags:${targetChannel}`, 300, async () => {
+      const db = getDb();
+      const postsCol = db.collection('cms_posts');
+
+      const filter = { status: 'published' };
+      if (targetChannel && targetChannel !== 'all') {
+        filter.$or = [{ channel: targetChannel }, { channel: 'all' }];
+      }
+
+      const rawTags = await postsCol.distinct('tags', filter);
+      return rawTags.filter(Boolean).slice(0, 30);
+    });
+
+    return res.status(200).json({ tags });
   } catch (err) {
     console.error('Public Get Tags Error:', err);
     return res.status(500).json({ error: 'Failed to retrieve tags.', code: 'SERVER_ERROR' });

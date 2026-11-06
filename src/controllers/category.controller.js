@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../db/connection.js';
 import { logAuditEvent } from '../services/audit.service.js';
 import { slugify } from '../utils/slugify.js';
+import { invalidateCacheByPrefix } from '../services/cache.service.js';
 
 export async function getCategories(req, res) {
   try {
@@ -87,6 +88,8 @@ export async function createCategory(req, res) {
       metadata: { slug: newCategory.slug, color: newCategory.color },
     });
 
+    invalidateCacheByPrefix('cms:').catch(() => {});
+
     return res.status(201).json({
       message: 'Category created successfully.',
       category: { id: result.insertedId.toString(), ...newCategory },
@@ -148,6 +151,8 @@ export async function updateCategory(req, res) {
       metadata: { updatedFields: Object.keys(updateDoc) },
     });
 
+    invalidateCacheByPrefix('cms:').catch(() => {});
+
     return res.status(200).json({
       message: 'Category updated successfully.',
       category: { ...category, ...updateDoc, id },
@@ -196,6 +201,8 @@ export async function deleteCategory(req, res) {
       targetId: id,
       targetName: category.name,
     });
+
+    invalidateCacheByPrefix('cms:').catch(() => {});
 
     return res.status(200).json({ message: 'Category deleted successfully.' });
   } catch (err) {

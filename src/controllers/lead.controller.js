@@ -5,6 +5,7 @@ import { logAuditEvent } from '../services/audit.service.js';
 import {
   sendLeadNotificationToAdmin,
   sendLeadConfirmationToUser,
+  sendLeadOutreachReplyEmail,
 } from '../services/email.service.js';
 import { dispatchMultiChannelLeadAlert } from '../services/leadAlert.service.js';
 
@@ -195,10 +196,20 @@ export async function submitPublicLead(req, res) {
     userAgent,
   });
 
-  // 6. Asynchronous Multi-Channel Alerts & Notification Emails (Fire and forget; never blocks response)
-  sendLeadNotificationToAdmin({ lead: leadDoc }).catch(() => {});
-  sendLeadConfirmationToUser({ lead: leadDoc }).catch(() => {});
-  dispatchMultiChannelLeadAlert({ lead: leadDoc, channel: resolvedChannel }).catch(() => {});
+  // 6. Multi-Channel Alerts & Notification Email Dispatch
+  // Awaiting Promise.allSettled ensures serverless runtimes (like Vercel) don't terminate before outbound SMTP dispatches finish
+  const dispatchResults = await Promise.allSettled([
+    sendLeadNotificationToAdmin({ lead: leadDoc }),
+    sendLeadConfirmationToUser({ lead: leadDoc }),
+    dispatchMultiChannelLeadAlert({ lead: leadDoc, channel: resolvedChannel }),
+  ]);
+
+  dispatchResults.forEach((outcome, idx) => {
+    if (outcome.status === 'rejected') {
+      const taskNames = ['AdminNotification', 'UserConfirmation', 'MultiChannelAlert'];
+      console.error(`[Lead Dispatch Error - ${taskNames[idx]} (${resolvedChannel})]:`, outcome.reason?.message || outcome.reason);
+    }
+  });
 
   const successMessage = resolvedChannel === 'portfolio'
     ? 'Thank you for reaching out! Your message has been received, and I will get back to you shortly.'
@@ -316,6 +327,7 @@ export async function getLeadStats(req, res) {
     total,
     newLeads,
     contacted,
+    clientReplied,
     inProgress,
     qualified,
     converted,
@@ -328,6 +340,7 @@ export async function getLeadStats(req, res) {
     leadsCol.countDocuments(buildQuery()),
     leadsCol.countDocuments(buildQuery({ status: 'new' })),
     leadsCol.countDocuments(buildQuery({ status: 'contacted' })),
+    leadsCol.countDocuments(buildQuery({ status: 'client_replied' })),
     leadsCol.countDocuments(buildQuery({ status: 'in_progress' })),
     leadsCol.countDocuments(buildQuery({ status: 'qualified' })),
     leadsCol.countDocuments(buildQuery({ status: 'converted' })),
@@ -345,6 +358,7 @@ export async function getLeadStats(req, res) {
     total,
     new: newLeads,
     contacted,
+    clientReplied,
     inProgress,
     qualified,
     converted,
@@ -381,7 +395,7 @@ export async function updateLead(req, res) {
   const { status, priority, assignedTo } = req.body;
   const updateFields = { updatedAt: new Date() };
 
-  const validStatuses = ['new', 'contacted', 'in_progress', 'qualified', 'converted', 'closed', 'spam'];
+  const validStatuses = ['new', 'contacted', 'client_replied', 'in_progress', 'qualified', 'converted', 'closed', 'spam'];
   if (status) {
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: `Invalid status. Allowed: ${validStatuses.join(', ')}`, code: 'INVALID_STATUS' });
@@ -474,6 +488,135 @@ export async function addLeadNote(req, res) {
   });
 
   return res.status(200).json({ success: true, lead: updatedDoc, note: noteEntry });
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Admin Direct Reply / Outreach Email Endpoint
+ * Dispatches a formatted email directly to the client and logs it to lead timeline
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export async function replyToLead(req, res) {
+  const { id } = req.params;
+  const { subject, message, newStatus } = req.body || {};
+
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ error: 'Invalid lead ID format.', code: 'INVALID_ID' });
+  }
+
+  if (!subject || typeof subject !== 'string' || subject.trim().length < 3) {
+    return res.status(400).json({ error: 'Email subject is required (minimum 3 characters).', code: 'INVALID_SUBJECT' });
+  }
+
+  if (!message || typeof message !== 'string' || message.trim().length < 10) {
+    return res.status(400).json({ error: 'Email message is required (minimum 10 characters).', code: 'INVALID_MESSAGE' });
+  }
+
+  const db = getDb();
+  const lead = await db.collection('contact_leads').findOne({ _id: new ObjectId(id) });
+
+  if (!lead) {
+    return res.status(404).json({ error: 'Lead record not found.', code: 'NOT_FOUND' });
+  }
+
+  const authorName = req.user?.name || 'Administrator';
+  const authorEmail = req.user?.email || (lead.channel === 'portfolio' ? process.env.PORTFOLIO_ADMIN_EMAIL : process.env.ADMIN_NOTIFICATION_EMAIL);
+
+  const emailResult = await sendLeadOutreachReplyEmail({
+    lead,
+    to: lead.email,
+    subject: subject.trim(),
+    message: message.trim(),
+    authorName,
+    authorEmail,
+  });
+
+  if (!emailResult.ok) {
+    return res.status(500).json({
+      error: `Failed to dispatch email: ${emailResult.error || 'SMTP delivery failure'}`,
+      code: 'EMAIL_SEND_FAILED',
+    });
+  }
+
+  const now = new Date();
+  const noteEntry = {
+    _id: new ObjectId(),
+    type: 'email_outreach',
+    note: `Sent outreach email to client: "${subject.trim()}"`,
+    emailSubject: subject.trim(),
+    emailMessage: message.trim(),
+    recipient: lead.email,
+    authorName,
+    authorEmail,
+    createdAt: now,
+  };
+
+  const messageEntry = {
+    _id: new ObjectId(),
+    direction: 'outbound',
+    senderType: 'admin',
+    from: emailResult.fromEmail || authorEmail,
+    to: lead.email,
+    subject: subject.trim(),
+    bodyText: message.trim(),
+    messageId: emailResult.messageId,
+    authorName,
+    authorEmail,
+    createdAt: now,
+  };
+
+  const updateFields = {
+    updatedAt: now,
+    lastContactedAt: now,
+    lastMessageAt: now,
+    lastMessageDirection: 'outbound',
+    unreadClientReplies: 0,
+  };
+
+  // If status is provided or currently 'new', upgrade to 'contacted'
+  if (newStatus && typeof newStatus === 'string') {
+    updateFields.status = newStatus;
+  } else if (lead.status === 'new') {
+    updateFields.status = 'contacted';
+  }
+
+  const result = await db.collection('contact_leads').findOneAndUpdate(
+    { _id: new ObjectId(id) },
+    {
+      $push: {
+        notes: noteEntry,
+        messages: messageEntry,
+      },
+      $set: updateFields,
+    },
+    { returnDocument: 'after' }
+  );
+
+  const updatedDoc = result.value || (await db.collection('contact_leads').findOne({ _id: new ObjectId(id) }));
+
+  await logAuditEvent({
+    actorUserId: req.user?.id,
+    actorEmail: req.user?.email,
+    action: 'lead.email_replied',
+    targetType: 'contact_lead',
+    targetId: id,
+    targetName: lead.name,
+    metadata: {
+      recipient: lead.email,
+      subject: subject.trim(),
+      channel: lead.channel,
+      mocked: emailResult.mocked || false,
+    },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: `Outreach email successfully sent to ${lead.name} (${lead.email}).`,
+    lead: updatedDoc,
+    note: noteEntry,
+  });
 }
 
 export async function deleteLead(req, res) {
@@ -577,3 +720,33 @@ export async function exportLeadsCsv(req, res) {
   res.setHeader('Content-Disposition', `attachment; filename="gyanvaniai-leads-export-${new Date().toISOString().slice(0, 10)}.csv"`);
   return res.status(200).send(csvContent);
 }
+
+/**
+ * Mark all unread client replies for this lead as read.
+ */
+export async function markLeadMessagesRead(req, res) {
+  const { id } = req.params;
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ error: 'Invalid lead ID format.', code: 'INVALID_ID' });
+  }
+
+  const db = getDb();
+  const result = await db.collection('contact_leads').findOneAndUpdate(
+    { _id: new ObjectId(id) },
+    { $set: { unreadClientReplies: 0, updatedAt: new Date() } },
+    { returnDocument: 'after' }
+  );
+
+  const updatedDoc = result.value || (await db.collection('contact_leads').findOne({ _id: new ObjectId(id) }));
+  if (!updatedDoc) {
+    return res.status(404).json({ error: 'Lead not found.', code: 'NOT_FOUND' });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'Lead messages marked as read.',
+    unreadClientReplies: 0,
+    lead: updatedDoc,
+  });
+}
+

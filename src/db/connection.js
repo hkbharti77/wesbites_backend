@@ -1,8 +1,12 @@
 import dns from 'node:dns';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Ensure reliable SRV resolution across environments (e.g. Windows Node.js DNS edge cases)
 try {

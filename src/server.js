@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { connectDB } from './db/connection.js';
+import { connectDB, closeDB } from './db/connection.js';
+import { connectRedis, closeRedis, isRedisHealthy } from './db/redis.js';
 import { csrfMiddleware } from './middleware/csrf.js';
 
 import path from 'path';
@@ -23,6 +24,7 @@ import newsletterRoutes from './routes/newsletter.routes.js';
 import subscriberRoutes from './routes/subscriber.routes.js';
 import contactRoutes from './routes/contact.routes.js';
 import leadRoutes from './routes/lead.routes.js';
+import webhookRoutes from './routes/webhook.routes.js';
 import landingPageRoutes from './routes/landingPage.routes.js';
 import publicLandingPageRoutes from './routes/publicLandingPage.routes.js';
 import { getPublicCategories, getPublicTags, getBlogSitemapXmlEndpoint, getBlogRssXmlEndpoint } from './controllers/publicPost.controller.js';
@@ -171,6 +173,10 @@ app.use('/api/admin/subscribers', subscriberRoutes);
 app.use('/api/public/contact', contactRoutes);
 app.use('/api/admin/leads', leadRoutes);
 
+// Inbound Email & Integration Webhooks
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/public/webhooks', webhookRoutes);
+
 // Data Subject Rights (DSR) & Privacy Grievance Handling (India DPDP Act 2023)
 app.use('/api/public/privacy-requests', publicPrivacyRequestRoutes);
 app.use('/api/admin/privacy-requests', adminPrivacyRequestRoutes);
@@ -187,6 +193,26 @@ app.get('/api/public/categories', getPublicCategories);
 app.get('/api/public/tags', getPublicTags);
 app.get('/api/public/site-settings/theme', getPublicTheme);
 app.get('/api/public/og-image', generateOgImage);
+
+// Health & Infrastructure Observability
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    database: {
+      type: 'MongoDB Atlas',
+      name: process.env.MONGODB_DB_NAME || 'gyanvaniai_dev',
+      status: 'connected',
+    },
+    redis: {
+      enabled: Boolean(process.env.REDIS_URL),
+      status: isRedisHealthy() ? 'connected' : 'offline',
+      rateLimiting: process.env.RATE_LIMIT_STORAGE === 'redis' ? 'active' : 'fallback-mongo',
+      cache: process.env.ENABLE_REDIS_CACHE !== 'false' && isRedisHealthy() ? 'active' : 'disabled',
+    },
+  });
+});
 
 // 404 handler
 app.use((req, res) => {
@@ -209,6 +235,7 @@ app.use((err, req, res, _next) => {
 // Start server function (exported for testing or programmatic boot)
 export async function startServer(customPort = PORT) {
   await connectDB();
+  await connectRedis();
 
   // Initialize automated background workers
   startScheduledPublishWorker();
@@ -217,8 +244,8 @@ export async function startServer(customPort = PORT) {
   }, 24 * 60 * 60 * 1000).unref();
 
   return new Promise((resolve, reject) => {
-    const server = app.listen(customPort, '0.0.0.0', () => {
-      console.log(`🚀 GyanVaniAi Admin Backend running on http://0.0.0.0:${customPort}`);
+    const server = app.listen(customPort, () => {
+      console.log(`🚀 GyanVaniAi Admin Backend running on http://localhost:${customPort}`);
       console.log(`🔒 CORS Origin Policy: Controlled by CORS_ORIGIN -> ${parseAllowedOrigins().join(', ')}`);
       resolve(server);
     });
@@ -228,6 +255,23 @@ export async function startServer(customPort = PORT) {
     });
   });
 }
+
+// Graceful process termination
+async function gracefulShutdown(signal) {
+  console.log(`\n🛑 Received ${signal}. Closing MongoDB and Redis connections...`);
+  try {
+    await closeRedis();
+    await closeDB();
+    console.log('✅ Connections closed cleanly. Exiting.');
+    process.exit(0);
+  } catch (err) {
+    console.error('Error during shutdown:', err);
+    process.exit(1);
+  }
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // Auto-boot if executed directly
 if (process.argv[1] && process.argv[1].endsWith('server.js')) {
