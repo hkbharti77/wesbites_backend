@@ -13,20 +13,12 @@ const UPLOADS_DIR = path.resolve(__dirname, '../../uploads/cms');
 
 // Cloudinary Configuration (Strictly loaded from environment variables)
 function getCloudinaryClient() {
-  const cldUrl = process.env.CLOUDINARY_URL;
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
   const apiKey = process.env.CLOUDINARY_API_KEY;
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  const cldUrl = process.env.CLOUDINARY_URL;
 
-  if (cldUrl && cldUrl.startsWith('cloudinary://')) {
-    try {
-      cloudinary.config(cldUrl);
-      return { ready: true, cloudName: cloudName || 'env_configured' };
-    } catch (e) {
-      console.warn('Cloudinary URL config error:', e.message);
-    }
-  }
-
+  // 1. Configure with explicit credentials (highest reliability in Node.js)
   if (cloudName && apiKey && apiSecret) {
     try {
       cloudinary.config({
@@ -38,6 +30,25 @@ function getCloudinaryClient() {
       return { ready: true, cloudName };
     } catch (e) {
       console.warn('Cloudinary credentials config error:', e.message);
+    }
+  }
+
+  // 2. Parse from CLOUDINARY_URL if present: cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+  if (cldUrl && cldUrl.startsWith('cloudinary://')) {
+    try {
+      const match = cldUrl.match(/cloudinary:\/\/([^:]+):([^@]+)@(.+)/);
+      if (match) {
+        const [, parsedKey, parsedSecret, parsedName] = match;
+        cloudinary.config({
+          cloud_name: parsedName,
+          api_key: parsedKey,
+          api_secret: parsedSecret,
+          secure: true,
+        });
+        return { ready: true, cloudName: parsedName };
+      }
+    } catch (e) {
+      console.warn('Cloudinary URL parse error:', e.message);
     }
   }
 
@@ -271,7 +282,9 @@ export async function uploadMedia(req, res) {
         }
 
         await fs.writeFile(filePath, buffer);
-        finalUrl = `/uploads/cms/${safeFilename}`;
+        const host = req.get('host') || `localhost:${process.env.PORT || 5000}`;
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        finalUrl = `${protocol}://${host}/uploads/cms/${safeFilename}`;
         storageType = 'local';
       } catch (fsErr) {
         console.error('Local filesystem storage failed:', fsErr);

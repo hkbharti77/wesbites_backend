@@ -12,6 +12,7 @@ import {
   getPreviewToken,
   getAnalytics,
   pingPostIndexNow,
+  parseLinkedInProfile,
 } from '../controllers/cmsPost.controller.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
@@ -26,6 +27,9 @@ router.post('/', requirePermission('posts.create'), createPost);
 
 // Blog Analytics — must be before /:id to avoid wildcard capture
 router.get('/analytics/summary', requirePermission('analytics.read'), getAnalytics);
+
+// Parse LinkedIn profile for author details
+router.post('/parse-linkedin', requirePermission('posts.create'), parseLinkedInProfile);
 
 router.get('/:id', requirePermission('posts.read'), getPostById);
 router.put('/:id', requirePermission('posts.update'), updatePost);

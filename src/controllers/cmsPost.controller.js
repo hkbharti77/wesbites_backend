@@ -49,6 +49,16 @@ export function sanitizeArticleContent(html) {
   return sanitized;
 }
 
+export function resolveImageUrl(url, req) {
+  if (!url || typeof url !== 'string') return url;
+  if (url.startsWith('/uploads/')) {
+    const host = req ? (req.get('host') || `localhost:${process.env.PORT || 5000}`) : `localhost:${process.env.PORT || 5000}`;
+    const protocol = (req && (req.protocol === 'https' || req.get('x-forwarded-proto') === 'https')) ? 'https' : 'http';
+    return `${protocol}://${host}${url}`;
+  }
+  return url;
+}
+
 export async function getPosts(req, res) {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -119,9 +129,12 @@ export async function getPosts(req, res) {
         status: p.status,
         published: p.status === 'published',
         isFeatured: Boolean(p.isFeatured),
-        featuredImage: p.featuredImage || null,
-        imageUrl: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
-        coverImage: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
+        featuredImage: p.featuredImage ? {
+          ...p.featuredImage,
+          url: resolveImageUrl(typeof p.featuredImage === 'string' ? p.featuredImage : p.featuredImage.url, req),
+        } : null,
+        imageUrl: resolveImageUrl(typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'), req),
+        coverImage: resolveImageUrl(typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'), req),
         pdfUrl: p.pdf?.url || p.pdfUrl || '',
         pdfName: p.pdf?.name || p.pdfName || '',
         readingTimeMinutes: p.readingTimeMinutes || p.readingTime || 1,
@@ -185,9 +198,12 @@ export async function getPostById(req, res) {
         status: post.status,
         published: post.status === 'published',
         isFeatured: Boolean(post.isFeatured),
-        featuredImage: post.featuredImage || null,
-        imageUrl: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
-        coverImage: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
+        featuredImage: post.featuredImage ? {
+          ...post.featuredImage,
+          url: resolveImageUrl(typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage.url, req),
+        } : null,
+        imageUrl: resolveImageUrl(typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'), req),
+        coverImage: resolveImageUrl(typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'), req),
         coverImageAlt: post.featuredImage?.alt || '',
         pdfUrl: post.pdf?.url || post.pdfUrl || '',
         pdfName: post.pdf?.name || post.pdfName || '',
@@ -196,7 +212,7 @@ export async function getPostById(req, res) {
         seoDescription: post.seo?.metaDescription || post.excerpt,
         seoKeywords: Array.isArray(post.seo?.keywords) ? post.seo.keywords.join(', ') : (post.seo?.keywords || ''),
         canonicalUrl: post.seo?.canonicalUrl || '',
-        ogImage: post.seo?.ogImage || '',
+        ogImage: resolveImageUrl(post.seo?.ogImage || '', req),
         aeo: post.aeo || {},
         editorialReview: post.editorialReview || {},
         readingTimeMinutes: post.readingTimeMinutes || post.readingTime || 1,
@@ -230,7 +246,7 @@ export async function createPost(req, res) {
       author = null,
       status = 'draft',
       published = null,
-      channel = 'portfolio',
+      channel = 'crm',
       coverImage = null,
       coverImageAlt = '',
       pdfUrl = '',
@@ -290,14 +306,39 @@ export async function createPost(req, res) {
     const finalSlug = await generateUniqueSlug(postsCol, slug || title);
     const readingTime = calculateReadingTime(content);
 
-    const authorDoc = author || {
-      id: new ObjectId(req.user.id),
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.roleNames?.[0] || 'Author',
+    const authorDoc = (author && typeof author === 'object') ? {
+      id: author.id && ObjectId.isValid(author.id) ? new ObjectId(author.id) : (req.user?.id && ObjectId.isValid(req.user.id) ? new ObjectId(req.user.id) : null),
+      name: (author.name || req.user?.name || 'Himanshu Bharti').trim(),
+      role: (author.role || req.user?.roleNames?.[0] || 'Software Engineer').trim(),
+      bio: (author.bio || '').trim(),
+      avatar: (author.avatar || author.image || '').trim(),
+      linkedin: (author.linkedin || '').trim(),
+      email: author.email || req.user?.email || '',
+    } : (typeof author === 'string' && author.trim()) ? {
+      id: req.user?.id && ObjectId.isValid(req.user.id) ? new ObjectId(req.user.id) : null,
+      name: author.trim(),
+      role: 'Software Engineer',
+      bio: '',
+      avatar: '',
+      linkedin: '',
+      email: req.user?.email || '',
+    } : {
+      id: req.user?.id && ObjectId.isValid(req.user.id) ? new ObjectId(req.user.id) : null,
+      name: req.user?.name || 'Himanshu Bharti',
+      role: req.user?.roleNames?.[0] || 'Software Engineer',
+      bio: '',
+      avatar: '',
+      linkedin: '',
+      email: req.user?.email || '',
     };
 
-    const finalTags = Array.isArray(tags) ? [...tags.map(t => t.trim()).filter(Boolean)] : [];
+    const rawTagList = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',') : []);
+    const finalTags = Array.from(new Set(
+      rawTagList
+        .flatMap(t => typeof t === 'string' ? t.split(/[,;\n]+/) : [])
+        .map(t => t.trim())
+        .filter(Boolean)
+    ));
     if (tag && !finalTags.includes(tag.trim())) {
       finalTags.unshift(tag.trim());
     }
@@ -319,7 +360,7 @@ export async function createPost(req, res) {
       content: sanitizeArticleContent(content.trim()),
       category: finalCategory,
       categoryId: categoryId && ObjectId.isValid(categoryId) ? new ObjectId(categoryId) : null,
-      channel: channel || 'portfolio',
+      channel: (channel === 'portfolio' || channel === 'crm') ? channel : 'crm',
       tags: finalTags,
       author: authorDoc,
       status: postStatus,
@@ -488,7 +529,16 @@ export async function updatePost(req, res) {
 
     const readingTime = content ? calculateReadingTime(content) : existingPost.readingTimeMinutes;
 
-    let resolvedTags = Array.isArray(tags) ? tags.map(t => t.trim()).filter(Boolean) : existingPost.tags;
+    let resolvedTags = existingPost.tags || [];
+    if (tags !== undefined) {
+      const rawTagList = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',') : []);
+      resolvedTags = Array.from(new Set(
+        rawTagList
+          .flatMap(t => typeof t === 'string' ? t.split(/[,;\n]+/) : [])
+          .map(t => t.trim())
+          .filter(Boolean)
+      ));
+    }
     if (tag && !resolvedTags.includes(tag.trim())) {
       resolvedTags = [tag.trim(), ...resolvedTags];
     }
@@ -498,6 +548,32 @@ export async function updatePost(req, res) {
       resolvedImage = { url: coverImage, alt: coverImageAlt || existingPost.featuredImage?.alt || existingPost.title };
     }
 
+    let resolvedAuthor = existingPost.author;
+    if (author !== undefined) {
+      if (author && typeof author === 'object') {
+        const prevAuthor = typeof existingPost.author === 'object' && existingPost.author !== null ? existingPost.author : {};
+        resolvedAuthor = {
+          ...prevAuthor,
+          name: (author.name || prevAuthor.name || existingPost.author || req.user?.name || 'Himanshu Bharti').trim(),
+          role: (author.role !== undefined ? author.role : (prevAuthor.role || 'Software Engineer')).trim(),
+          bio: (author.bio !== undefined ? author.bio : (prevAuthor.bio || '')).trim(),
+          avatar: (author.avatar !== undefined ? author.avatar : (prevAuthor.avatar || '')).trim(),
+          linkedin: (author.linkedin !== undefined ? author.linkedin : (prevAuthor.linkedin || '')).trim(),
+          email: author.email || prevAuthor.email || req.user?.email || '',
+        };
+      } else if (typeof author === 'string') {
+        const prevAuthor = typeof existingPost.author === 'object' && existingPost.author !== null ? existingPost.author : {};
+        resolvedAuthor = {
+          ...prevAuthor,
+          name: author.trim(),
+          role: prevAuthor.role || 'Software Engineer',
+          bio: prevAuthor.bio || '',
+          avatar: prevAuthor.avatar || '',
+          linkedin: prevAuthor.linkedin || '',
+        };
+      }
+    }
+
     const updateDoc = {
       slug: finalSlug,
       title: title ? title.trim() : existingPost.title,
@@ -505,9 +581,9 @@ export async function updatePost(req, res) {
       content: content !== undefined ? sanitizeArticleContent(content.trim()) : existingPost.content,
       category: category !== undefined ? category.trim() : (tag || existingPost.category),
       categoryId: categoryId !== undefined && ObjectId.isValid(categoryId) ? new ObjectId(categoryId) : existingPost.categoryId,
-      channel: channel !== undefined ? channel : (existingPost.channel || 'portfolio'),
+      channel: (channel === 'portfolio' || channel === 'crm') ? channel : (existingPost.channel || 'crm'),
       tags: resolvedTags,
-      author: author !== undefined ? author : existingPost.author,
+      author: resolvedAuthor,
       status: resolvedStatus !== undefined ? resolvedStatus : existingPost.status,
       isFeatured: isFeatured !== undefined ? Boolean(isFeatured) : existingPost.isFeatured,
       featuredImage: resolvedImage,
@@ -1143,5 +1219,116 @@ export async function getPreviewToken(req, res) {
   } catch (err) {
     console.error('Get Preview Token Error:', err);
     return res.status(500).json({ error: 'Failed to generate preview token.', code: 'SERVER_ERROR' });
+  }
+}
+
+/**
+ * Parse & Extract Author Data from LinkedIn Profile URL
+ */
+export async function parseLinkedInProfile(req, res) {
+  try {
+    const { url } = req.body || {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'Please provide a valid LinkedIn URL.', code: 'INVALID_URL' });
+    }
+
+    const trimmedUrl = url.trim();
+    const linkedinRegex = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub)\/([a-zA-Z0-9_-]+)/i;
+    const match = trimmedUrl.match(linkedinRegex);
+
+    if (!match) {
+      return res.status(400).json({
+        error: 'Please enter a valid LinkedIn personal profile URL (e.g. https://www.linkedin.com/in/username).',
+        code: 'INVALID_LINKEDIN_URL',
+      });
+    }
+
+    const handle = match[1];
+    // Clean handle to derive human-readable display name
+    const cleanHandleParts = handle
+      .replace(/-[0-9a-f]{7,12}$/i, '')
+      .replace(/-[0-9]{4,}$/i, '')
+      .split(/[-_.]/)
+      .filter(Boolean);
+
+    const derivedName = cleanHandleParts
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ') || 'Author';
+
+    const normalizedUrl = trimmedUrl.startsWith('http') ? trimmedUrl : `https://${trimmedUrl}`;
+
+    let scrapedData = {
+      name: derivedName,
+      role: 'SOFTWARE ENGINEER',
+      bio: '',
+      avatar: '',
+      linkedin: normalizedUrl,
+    };
+
+    // Attempt to fetch public OpenGraph tags from the URL with timeout
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      const response = await fetch(normalizedUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const html = await response.text();
+
+        // Extract og:title
+        const titleMatch = html.match(/<meta property=["']og:title["'] content=["'](.*?)["']/i) ||
+                           html.match(/<title>(.*?)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+          const rawTitle = titleMatch[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+          const cleanTitle = rawTitle.replace(/\|?\s*LinkedIn.*$/i, '').trim();
+          const parts = cleanTitle.split(/[-–—|•]/).map(p => p.trim()).filter(Boolean);
+          if (parts.length > 0 && parts[0]) {
+            scrapedData.name = parts[0];
+          }
+          if (parts.length > 1 && parts[1]) {
+            scrapedData.role = parts[1].toUpperCase();
+          }
+        }
+
+        // Extract og:description
+        const descMatch = html.match(/<meta property=["']og:description["'] content=["'](.*?)["']/i) ||
+                          html.match(/<meta name=["']description["'] content=["'](.*?)["']/i);
+        if (descMatch && descMatch[1]) {
+          const cleanDesc = descMatch[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+          if (cleanDesc && !cleanDesc.toLowerCase().includes('sign in') && !cleanDesc.toLowerCase().includes('join linkedin')) {
+            scrapedData.bio = cleanDesc;
+          }
+        }
+
+        // Extract og:image
+        const imageMatch = html.match(/<meta property=["']og:image["'] content=["'](.*?)["']/i);
+        if (imageMatch && imageMatch[1] && !imageMatch[1].includes('static.licdn.com/sc/h/')) {
+          scrapedData.avatar = imageMatch[1];
+        }
+      }
+    } catch {
+      // Graceful fallback to derived name & clean template
+    }
+
+    if (!scrapedData.bio) {
+      scrapedData.bio = `${scrapedData.name} is a ${scrapedData.role.toLowerCase()} with hands-on experience in building modern web applications, scalable backend systems, and AI-driven architectures.`;
+    }
+
+    return res.status(200).json({
+      success: true,
+      author: scrapedData,
+    });
+  } catch (err) {
+    console.error('Parse LinkedIn Profile Error:', err);
+    return res.status(500).json({ error: 'Failed to parse LinkedIn profile.', code: 'SERVER_ERROR' });
   }
 }

@@ -8,6 +8,16 @@ import {
 } from '../services/seoEngine.service.js';
 import { getOrSetCache } from '../services/cache.service.js';
 
+function resolveImageUrl(url, req) {
+  if (!url || typeof url !== 'string') return url;
+  if (url.startsWith('/uploads/')) {
+    const host = req ? (req.get('host') || `localhost:${process.env.PORT || 5000}`) : `localhost:${process.env.PORT || 5000}`;
+    const protocol = (req && (req.protocol === 'https' || req.get('x-forwarded-proto') === 'https')) ? 'https' : 'http';
+    return `${protocol}://${host}${url}`;
+  }
+  return url;
+}
+
 export async function getPublicPosts(req, res) {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -91,18 +101,35 @@ export async function getPublicPosts(req, res) {
         channel: p.channel || 'all',
         tags: p.tags || [],
         tag: p.tags?.[0] || p.tag || p.category || '',
-        author: typeof p.author === 'string' ? p.author : p.author?.name || 'Gyan VaniAi Product Team',
+        author: typeof p.author === 'string' ? p.author : p.author?.name || 'Himanshu Bharti',
+        authorDetails: typeof p.author === 'object' && p.author !== null ? {
+          name: p.author.name || 'Himanshu Bharti',
+          role: p.author.role || 'SOFTWARE ENGINEER',
+          avatar: p.author.avatar || p.author.image || '',
+          bio: p.author.bio || '',
+          linkedin: p.author.linkedin || '',
+        } : {
+          name: p.author || 'Himanshu Bharti',
+          role: 'SOFTWARE ENGINEER',
+          avatar: '',
+          bio: '',
+          linkedin: '',
+        },
+        authorRole: (typeof p.author === 'object' && p.author?.role) ? p.author.role : 'SOFTWARE ENGINEER',
+        authorAvatar: (typeof p.author === 'object' && (p.author?.avatar || p.author?.image)) ? (p.author.avatar || p.author.image) : '',
+        authorLinkedin: (typeof p.author === 'object' && p.author?.linkedin) ? p.author.linkedin : '',
+        authorBio: (typeof p.author === 'object' && p.author?.bio) ? p.author.bio : '',
         date: p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Recent',
         createdAt: p.publishedAt || p.createdAt,
         status: p.status,
         published: p.status === 'published',
         isFeatured: Boolean(p.isFeatured),
-        imageUrl: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
-        coverImage: typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'),
+        imageUrl: resolveImageUrl(typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'), req),
+        coverImage: resolveImageUrl(typeof p.featuredImage === 'string' ? p.featuredImage : (p.featuredImage?.url || p.imageUrl || '/portfolio_crm.webp'), req),
         coverImageAlt: p.featuredImage?.alt || p.title,
         pdfUrl: p.pdf?.url || p.pdfUrl || '',
         pdfName: p.pdf?.name || p.pdfName || '',
-        ogImageUrl: p.seo?.ogImage || (typeof p.featuredImage === 'string' ? p.featuredImage : p.featuredImage?.url) || '/portfolio_crm.webp',
+        ogImageUrl: resolveImageUrl(p.seo?.ogImage || (typeof p.featuredImage === 'string' ? p.featuredImage : p.featuredImage?.url) || '/portfolio_crm.webp', req),
         readingTimeMinutes: p.readingTimeMinutes || p.readingTime || 1,
         readTime: `${p.readingTimeMinutes || p.readingTime || 1} min`,
       })),
@@ -197,18 +224,35 @@ export async function getPublicPostBySlug(req, res) {
         tags: post.tags || [],
         tag: post.tags?.[0] || post.tag || post.category || '',
         author: typeof post.author === 'string' ? post.author : post.author?.name || 'Himanshu Bharti',
+        authorDetails: typeof post.author === 'object' && post.author !== null ? {
+          name: post.author.name || 'Himanshu Bharti',
+          role: post.author.role || 'SOFTWARE ENGINEER',
+          avatar: post.author.avatar || post.author.image || '',
+          bio: post.author.bio || '',
+          linkedin: post.author.linkedin || '',
+        } : {
+          name: post.author || 'Himanshu Bharti',
+          role: 'SOFTWARE ENGINEER',
+          avatar: '',
+          bio: '',
+          linkedin: '',
+        },
+        authorRole: (typeof post.author === 'object' && post.author?.role) ? post.author.role : 'SOFTWARE ENGINEER',
+        authorAvatar: resolveImageUrl((typeof post.author === 'object' && (post.author?.avatar || post.author?.image)) ? (post.author.avatar || post.author.image) : '', req),
+        authorLinkedin: (typeof post.author === 'object' && post.author?.linkedin) ? post.author.linkedin : '',
+        authorBio: (typeof post.author === 'object' && post.author?.bio) ? post.author.bio : '',
         date: post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : new Date(post.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
         createdAt: post.publishedAt || post.createdAt,
         status: post.status,
         published: post.status === 'published',
         isFeatured: Boolean(post.isFeatured),
-        imageUrl: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
-        coverImage: typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'),
+        imageUrl: resolveImageUrl(typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'), req),
+        coverImage: resolveImageUrl(typeof post.featuredImage === 'string' ? post.featuredImage : (post.featuredImage?.url || post.imageUrl || '/portfolio_crm.webp'), req),
         coverImageAlt: post.featuredImage?.alt || post.title,
         pdfUrl: post.pdf?.url || post.pdfUrl || '',
         pdfName: post.pdf?.name || post.pdfName || '',
-        ogImageUrl: post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp',
-        ogImage: post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp',
+        ogImageUrl: resolveImageUrl(post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp', req),
+        ogImage: resolveImageUrl(post.seo?.ogImage || (typeof post.featuredImage === 'string' ? post.featuredImage : post.featuredImage?.url) || '/portfolio_crm.webp', req),
         seo: post.seo || {},
         seoDescription: post.seo?.metaDescription || post.excerpt,
         seoKeywords: Array.isArray(post.seo?.keywords) ? post.seo.keywords.join(', ') : (post.seo?.keywords || ''),
