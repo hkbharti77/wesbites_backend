@@ -182,6 +182,17 @@ export async function getPostById(req, res) {
       return res.status(404).json({ error: 'Post not found.', code: 'NOT_FOUND' });
     }
 
+    const authorObj = (typeof post.author === 'object' && post.author !== null)
+      ? post.author
+      : (post.authorDetails || {
+          name: typeof post.author === 'string' ? post.author : (post.authorDetails?.name || ''),
+          role: post.authorRole || post.authorDetails?.role || 'SOFTWARE ENGINEER',
+          bio: post.authorBio || post.authorDetails?.bio || '',
+          avatar: post.authorAvatar || post.authorDetails?.avatar || '',
+          linkedin: post.authorLinkedin || post.authorDetails?.linkedin || '',
+          email: post.authorEmail || post.authorDetails?.email || '',
+        });
+
     return res.status(200).json({
       post: {
         id: post._id.toString(),
@@ -194,7 +205,12 @@ export async function getPostById(req, res) {
         channel: post.channel || 'all',
         tags: post.tags || [],
         tag: post.tags?.[0] || post.tag || post.category || '',
-        author: post.author,
+        author: authorObj,
+        authorDetails: authorObj,
+        authorRole: authorObj.role || 'SOFTWARE ENGINEER',
+        authorAvatar: resolveImageUrl(authorObj.avatar || '', req),
+        authorBio: authorObj.bio || '',
+        authorLinkedin: authorObj.linkedin || '',
         status: post.status,
         published: post.status === 'published',
         isFeatured: Boolean(post.isFeatured),
@@ -363,6 +379,11 @@ export async function createPost(req, res) {
       channel: (channel === 'portfolio' || channel === 'crm') ? channel : 'crm',
       tags: finalTags,
       author: authorDoc,
+      authorDetails: authorDoc,
+      authorRole: authorDoc.role || 'SOFTWARE ENGINEER',
+      authorAvatar: authorDoc.avatar || '',
+      authorBio: authorDoc.bio || '',
+      authorLinkedin: authorDoc.linkedin || '',
       status: postStatus,
       isFeatured: Boolean(isFeatured),
       featuredImage: resolvedFeaturedImage,
@@ -550,23 +571,26 @@ export async function updatePost(req, res) {
 
     let resolvedAuthor = existingPost.author;
     if (author !== undefined) {
+      const prevAuthor = typeof existingPost.author === 'object' && existingPost.author !== null
+        ? existingPost.author
+        : (existingPost.authorDetails || {});
+      const prevName = prevAuthor.name || (typeof existingPost.author === 'string' ? existingPost.author : '') || req.user?.name || 'Himanshu Bharti';
+
       if (author && typeof author === 'object') {
-        const prevAuthor = typeof existingPost.author === 'object' && existingPost.author !== null ? existingPost.author : {};
         resolvedAuthor = {
           ...prevAuthor,
-          name: (author.name || prevAuthor.name || existingPost.author || req.user?.name || 'Himanshu Bharti').trim(),
-          role: (author.role !== undefined ? author.role : (prevAuthor.role || 'Software Engineer')).trim(),
-          bio: (author.bio !== undefined ? author.bio : (prevAuthor.bio || '')).trim(),
-          avatar: (author.avatar !== undefined ? author.avatar : (prevAuthor.avatar || '')).trim(),
-          linkedin: (author.linkedin !== undefined ? author.linkedin : (prevAuthor.linkedin || '')).trim(),
+          name: (author.name !== undefined && author.name !== null ? author.name : prevName).trim(),
+          role: (author.role !== undefined && author.role !== null ? author.role : (prevAuthor.role || 'SOFTWARE ENGINEER')).trim(),
+          bio: (author.bio !== undefined && author.bio !== null ? author.bio : (prevAuthor.bio || '')).trim(),
+          avatar: (author.avatar !== undefined && author.avatar !== null ? author.avatar : (prevAuthor.avatar || '')).trim(),
+          linkedin: (author.linkedin !== undefined && author.linkedin !== null ? author.linkedin : (prevAuthor.linkedin || '')).trim(),
           email: author.email || prevAuthor.email || req.user?.email || '',
         };
       } else if (typeof author === 'string') {
-        const prevAuthor = typeof existingPost.author === 'object' && existingPost.author !== null ? existingPost.author : {};
         resolvedAuthor = {
           ...prevAuthor,
           name: author.trim(),
-          role: prevAuthor.role || 'Software Engineer',
+          role: prevAuthor.role || 'SOFTWARE ENGINEER',
           bio: prevAuthor.bio || '',
           avatar: prevAuthor.avatar || '',
           linkedin: prevAuthor.linkedin || '',
@@ -584,6 +608,11 @@ export async function updatePost(req, res) {
       channel: (channel === 'portfolio' || channel === 'crm') ? channel : (existingPost.channel || 'crm'),
       tags: resolvedTags,
       author: resolvedAuthor,
+      authorDetails: resolvedAuthor,
+      authorRole: resolvedAuthor?.role || 'SOFTWARE ENGINEER',
+      authorAvatar: resolvedAuthor?.avatar || '',
+      authorBio: resolvedAuthor?.bio || '',
+      authorLinkedin: resolvedAuthor?.linkedin || '',
       status: resolvedStatus !== undefined ? resolvedStatus : existingPost.status,
       isFeatured: isFeatured !== undefined ? Boolean(isFeatured) : existingPost.isFeatured,
       featuredImage: resolvedImage,
@@ -1233,17 +1262,20 @@ export async function parseLinkedInProfile(req, res) {
     }
 
     const trimmedUrl = url.trim();
-    const linkedinRegex = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub)\/([a-zA-Z0-9_-]+)/i;
+    const linkedinRegex = /(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/(in|pub|company|school)\/([a-zA-Z0-9_.-]+)/i;
     const match = trimmedUrl.match(linkedinRegex);
 
     if (!match) {
       return res.status(400).json({
-        error: 'Please enter a valid LinkedIn personal profile URL (e.g. https://www.linkedin.com/in/username).',
+        error: 'Please enter a valid LinkedIn URL (e.g. https://www.linkedin.com/in/username or https://www.linkedin.com/company/companyname).',
         code: 'INVALID_LINKEDIN_URL',
       });
     }
 
-    const handle = match[1];
+    const type = match[1].toLowerCase();
+    const handle = match[2];
+    const isCompany = type === 'company' || type === 'school';
+
     // Clean handle to derive human-readable display name
     const cleanHandleParts = handle
       .replace(/-[0-9a-f]{7,12}$/i, '')
@@ -1251,15 +1283,20 @@ export async function parseLinkedInProfile(req, res) {
       .split(/[-_.]/)
       .filter(Boolean);
 
-    const derivedName = cleanHandleParts
+    let derivedName = cleanHandleParts
       .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-      .join(' ') || 'Author';
+      .join(' ') || (isCompany ? 'GyanVaniAI' : 'Author');
 
-    const normalizedUrl = trimmedUrl.startsWith('http') ? trimmedUrl : `https://${trimmedUrl}`;
+    if (derivedName.toLowerCase().includes('gyanvani')) {
+      derivedName = 'GyanVaniAI';
+    }
+
+    const cleanUrlMatch = trimmedUrl.match(/(https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/(?:in|pub|company|school)\/[a-zA-Z0-9_.-]+)/i);
+    const normalizedUrl = cleanUrlMatch ? cleanUrlMatch[1] : (trimmedUrl.startsWith('http') ? trimmedUrl : `https://${trimmedUrl}`);
 
     let scrapedData = {
       name: derivedName,
-      role: 'SOFTWARE ENGINEER',
+      role: isCompany ? 'AUTHOR' : 'SOFTWARE ENGINEER',
       bio: '',
       avatar: '',
       linkedin: normalizedUrl,
