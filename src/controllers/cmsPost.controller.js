@@ -1239,10 +1239,18 @@ export async function getPreviewToken(req, res) {
     }
 
     const token = generatePreviewToken(id);
+    const isProduction = process.env.NODE_ENV === 'production';
+    const previewUrl = post.channel === 'portfolio'
+      ? (isProduction
+          ? `https://hkbharti77.website/#blog?article=${post.slug}&preview=${token}`
+          : `http://localhost:5174/#blog?article=${post.slug}&preview=${token}`)
+      : (isProduction
+          ? `https://www.gyanvaniai.com/blog/${post.slug}?preview=${token}`
+          : `http://localhost:5173/blog/${post.slug}?preview=${token}`);
 
     return res.status(200).json({
       previewToken: token,
-      previewUrl: `http://localhost:5173/blog/${post.slug}?preview=${token}`,
+      previewUrl,
       expiresIn: '2 hours',
     });
   } catch (err) {
