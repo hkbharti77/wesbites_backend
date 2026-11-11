@@ -160,23 +160,45 @@ export async function getPublicPostBySlug(req, res) {
     const db = getDb();
     const postsCol = db.collection('cms_posts');
 
+    const escapeRegex = (str) => (str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // 1. Exact slug match
     let post = await postsCol.findOne({ slug: slugOrId });
+    if (!post) {
+      post = await postsCol.findOne({ slugId: slugOrId });
+    }
+    // 2. ObjectId match
     if (!post && ObjectId.isValid(slugOrId)) {
       post = await postsCol.findOne({ _id: new ObjectId(slugOrId) });
+    }
+    // 3. Case-insensitive slug match
+    if (!post && typeof slugOrId === 'string') {
+      const cleanSlug = slugOrId.trim();
+      post = await postsCol.findOne({
+        slug: { $regex: new RegExp(`^${escapeRegex(cleanSlug)}$`, 'i') },
+      });
+    }
+    // 4. Fuzzy token / substring match (e.g. short slug vs long title slug)
+    if (!post && typeof slugOrId === 'string' && slugOrId.length >= 6) {
+      const tokens = slugOrId
+        .toLowerCase()
+        .split(/[-_+\s]+/)
+        .filter((t) => t.length > 2)
+        .slice(0, 6);
+
+      if (tokens.length >= 2) {
+        const pattern = tokens.map(escapeRegex).join('.*');
+        post = await postsCol.findOne({
+          $or: [
+            { slug: { $regex: new RegExp(pattern, 'i') } },
+            { title: { $regex: new RegExp(pattern, 'i') } },
+          ],
+        });
+      }
     }
 
     if (!post) {
       return res.status(404).json({ error: 'Article not found.', code: 'NOT_FOUND' });
-    }
-
-    // Channel Security Isolation:
-    // If requesting for a specific channel (e.g. portfolio), reject if article belongs to a different channel
-    const targetChannel = channel || 'crm';
-    if (targetChannel && targetChannel !== 'all') {
-      const postChannel = post.channel || 'crm';
-      if (postChannel !== 'all' && postChannel !== targetChannel) {
-        return res.status(404).json({ error: 'Article not found for this channel.', code: 'NOT_FOUND' });
-      }
     }
 
     // Security Verification: If post is NOT published, verify preview token
@@ -190,7 +212,8 @@ export async function getPublicPostBySlug(req, res) {
       }
     }
 
-    // Adjacent posts filtered by the same channel
+    // Adjacent posts filtered by the article's channel
+    const targetChannel = channel || post.channel || 'all';
     const adjacentFilter = { status: 'published' };
     if (targetChannel && targetChannel !== 'all') {
       if (targetChannel === 'crm') {
@@ -202,7 +225,10 @@ export async function getPublicPostBySlug(req, res) {
           { channel: { $exists: false } },
         ];
       } else {
-        adjacentFilter.$or = [{ channel: targetChannel }, { channel: 'all' }];
+        adjacentFilter.$or = [
+          { channel: targetChannel },
+          { channel: 'all' },
+        ];
       }
     }
 
