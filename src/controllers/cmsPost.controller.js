@@ -324,7 +324,7 @@ export async function createPost(req, res) {
 
     const authorDoc = (author && typeof author === 'object') ? {
       id: author.id && ObjectId.isValid(author.id) ? new ObjectId(author.id) : (req.user?.id && ObjectId.isValid(req.user.id) ? new ObjectId(req.user.id) : null),
-      name: (author.name || req.user?.name || 'Himanshu Bharti').trim(),
+      name: (author.name || req.user?.name || (channel === 'portfolio' ? 'Himanshu Bharti' : 'GyanVaniAi')).trim(),
       role: (author.role || req.user?.roleNames?.[0] || 'Software Engineer').trim(),
       bio: (author.bio || '').trim(),
       avatar: (author.avatar || author.image || '').trim(),
@@ -574,7 +574,7 @@ export async function updatePost(req, res) {
       const prevAuthor = typeof existingPost.author === 'object' && existingPost.author !== null
         ? existingPost.author
         : (existingPost.authorDetails || {});
-      const prevName = prevAuthor.name || (typeof existingPost.author === 'string' ? existingPost.author : '') || req.user?.name || 'Himanshu Bharti';
+      const prevName = prevAuthor.name || (typeof existingPost.author === 'string' ? existingPost.author : '') || req.user?.name || (existingPost.channel === 'portfolio' ? 'Himanshu Bharti' : 'GyanVaniAi');
 
       if (author && typeof author === 'object') {
         resolvedAuthor = {

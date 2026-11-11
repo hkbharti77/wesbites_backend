@@ -34,12 +34,24 @@ export async function getPublicPosts(req, res) {
     // If no channel is specified, default to 'crm' (GyanVani CRM website default)
     const targetChannel = channel || 'crm';
     if (targetChannel && targetChannel !== 'all') {
-      andConditions.push({
-        $or: [
-          { channel: targetChannel },
-          { channel: 'all' },
-        ],
-      });
+      if (targetChannel === 'crm') {
+        andConditions.push({
+          $or: [
+            { channel: 'crm' },
+            { channel: 'all' },
+            { channel: null },
+            { channel: '' },
+            { channel: { $exists: false } },
+          ],
+        });
+      } else {
+        andConditions.push({
+          $or: [
+            { channel: targetChannel },
+            { channel: 'all' },
+          ],
+        });
+      }
     }
 
     if (category && category !== 'All' && category !== 'all') {
@@ -101,15 +113,15 @@ export async function getPublicPosts(req, res) {
         channel: p.channel || 'all',
         tags: p.tags || [],
         tag: p.tags?.[0] || p.tag || p.category || '',
-        author: ((typeof p.author === 'object' && p.author?.name) ? p.author.name : (p.authorDetails?.name || (typeof p.author === 'string' ? p.author : 'Himanshu Bharti'))),
+        author: ((typeof p.author === 'object' && p.author?.name) ? p.author.name : (p.authorDetails?.name || (typeof p.author === 'string' && p.author ? p.author : (p.channel === 'portfolio' ? 'Himanshu Bharti' : 'GyanVaniAi')))),
         authorDetails: {
-          name: ((typeof p.author === 'object' && p.author?.name) ? p.author.name : (p.authorDetails?.name || (typeof p.author === 'string' ? p.author : 'Himanshu Bharti'))),
-          role: (typeof p.author === 'object' && p.author?.role) ? p.author.role : (p.authorDetails?.role || p.authorRole || 'SOFTWARE ENGINEER'),
+          name: ((typeof p.author === 'object' && p.author?.name) ? p.author.name : (p.authorDetails?.name || (typeof p.author === 'string' && p.author ? p.author : (p.channel === 'portfolio' ? 'Himanshu Bharti' : 'GyanVaniAi')))),
+          role: (typeof p.author === 'object' && p.author?.role) ? p.author.role : (p.authorDetails?.role || p.authorRole || (p.channel === 'portfolio' ? 'SOFTWARE ENGINEER' : 'Enterprise Systems & AI Research Group at Gyan VaniAi')),
           avatar: resolveImageUrl((typeof p.author === 'object' && (p.author?.avatar || p.author?.image)) ? (p.author.avatar || p.author.image) : (p.authorDetails?.avatar || p.authorAvatar || p.authorImage || ''), req),
           bio: (typeof p.author === 'object' && p.author?.bio) ? p.author.bio : (p.authorDetails?.bio || p.authorBio || ''),
           linkedin: (typeof p.author === 'object' && p.author?.linkedin) ? p.author.linkedin : (p.authorDetails?.linkedin || p.authorLinkedin || ''),
         },
-        authorRole: (typeof p.author === 'object' && p.author?.role) ? p.author.role : (p.authorDetails?.role || p.authorRole || 'SOFTWARE ENGINEER'),
+        authorRole: (typeof p.author === 'object' && p.author?.role) ? p.author.role : (p.authorDetails?.role || p.authorRole || (p.channel === 'portfolio' ? 'SOFTWARE ENGINEER' : 'Enterprise Systems & AI Research Group at Gyan VaniAi')),
         authorAvatar: resolveImageUrl((typeof p.author === 'object' && (p.author?.avatar || p.author?.image)) ? (p.author.avatar || p.author.image) : (p.authorDetails?.avatar || p.authorAvatar || p.authorImage || ''), req),
         authorLinkedin: (typeof p.author === 'object' && p.author?.linkedin) ? p.author.linkedin : (p.authorDetails?.linkedin || p.authorLinkedin || ''),
         authorBio: (typeof p.author === 'object' && p.author?.bio) ? p.author.bio : (p.authorDetails?.bio || p.authorBio || ''),
@@ -181,7 +193,17 @@ export async function getPublicPostBySlug(req, res) {
     // Adjacent posts filtered by the same channel
     const adjacentFilter = { status: 'published' };
     if (targetChannel && targetChannel !== 'all') {
-      adjacentFilter.$or = [{ channel: targetChannel }, { channel: 'all' }];
+      if (targetChannel === 'crm') {
+        adjacentFilter.$or = [
+          { channel: 'crm' },
+          { channel: 'all' },
+          { channel: null },
+          { channel: '' },
+          { channel: { $exists: false } },
+        ];
+      } else {
+        adjacentFilter.$or = [{ channel: targetChannel }, { channel: 'all' }];
+      }
     }
 
     // Calculate adjacent posts (prev & next) for public reader continuity
@@ -217,15 +239,15 @@ export async function getPublicPostBySlug(req, res) {
         channel: post.channel || 'all',
         tags: post.tags || [],
         tag: post.tags?.[0] || post.tag || post.category || '',
-        author: ((typeof post.author === 'object' && post.author?.name) ? post.author.name : (post.authorDetails?.name || (typeof post.author === 'string' ? post.author : 'Himanshu Bharti'))),
+        author: ((typeof post.author === 'object' && post.author?.name) ? post.author.name : (post.authorDetails?.name || (typeof post.author === 'string' && post.author ? post.author : (post.channel === 'portfolio' ? 'Himanshu Bharti' : 'GyanVaniAi')))),
         authorDetails: {
-          name: ((typeof post.author === 'object' && post.author?.name) ? post.author.name : (post.authorDetails?.name || (typeof post.author === 'string' ? post.author : 'Himanshu Bharti'))),
-          role: (typeof post.author === 'object' && post.author?.role) ? post.author.role : (post.authorDetails?.role || post.authorRole || 'SOFTWARE ENGINEER'),
+          name: ((typeof post.author === 'object' && post.author?.name) ? post.author.name : (post.authorDetails?.name || (typeof post.author === 'string' && post.author ? post.author : (post.channel === 'portfolio' ? 'Himanshu Bharti' : 'GyanVaniAi')))),
+          role: (typeof post.author === 'object' && post.author?.role) ? post.author.role : (post.authorDetails?.role || post.authorRole || (post.channel === 'portfolio' ? 'SOFTWARE ENGINEER' : 'Enterprise Systems & AI Research Group at Gyan VaniAi')),
           avatar: resolveImageUrl((typeof post.author === 'object' && (post.author?.avatar || post.author?.image)) ? (post.author.avatar || post.author.image) : (post.authorDetails?.avatar || post.authorAvatar || post.authorImage || ''), req),
           bio: (typeof post.author === 'object' && post.author?.bio) ? post.author.bio : (post.authorDetails?.bio || post.authorBio || ''),
           linkedin: (typeof post.author === 'object' && post.author?.linkedin) ? post.author.linkedin : (post.authorDetails?.linkedin || post.authorLinkedin || ''),
         },
-        authorRole: (typeof post.author === 'object' && post.author?.role) ? post.author.role : (post.authorDetails?.role || post.authorRole || 'SOFTWARE ENGINEER'),
+        authorRole: (typeof post.author === 'object' && post.author?.role) ? post.author.role : (post.authorDetails?.role || post.authorRole || (post.channel === 'portfolio' ? 'SOFTWARE ENGINEER' : 'Enterprise Systems & AI Research Group at Gyan VaniAi')),
         authorAvatar: resolveImageUrl((typeof post.author === 'object' && (post.author?.avatar || post.author?.image)) ? (post.author.avatar || post.author.image) : (post.authorDetails?.avatar || post.authorAvatar || post.authorImage || ''), req),
         authorLinkedin: (typeof post.author === 'object' && post.author?.linkedin) ? post.author.linkedin : (post.authorDetails?.linkedin || post.authorLinkedin || ''),
         authorBio: (typeof post.author === 'object' && post.author?.bio) ? post.author.bio : (post.authorDetails?.bio || post.authorBio || ''),
