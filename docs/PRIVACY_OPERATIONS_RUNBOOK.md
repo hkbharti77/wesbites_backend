@@ -145,3 +145,25 @@ If any regression is observed:
    ```javascript
    db.collection('cookie_consents').dropIndex('createdAt_1')
    ```
+
+---
+
+## 6. Statutory Website Compliance Checklist (The 8 Checks & Beyond)
+
+*Reference: RINISHA Website Compliance Checklist (India 2026 / DPDP Act)*
+
+### Statutory Maximum Penalties & Milestones
+- **₹250 cr:** Maximum penalty under DPDP Act §33 for failure to implement reasonable security safeguards.
+- **₹200 cr:** Penalty for failure to notify Data Protection Board / Data Principals of a breach (§8(6)), or violating children's data obligations (§9).
+- **13 May 2027:** Statutory deadline for full enforcement of core DPDP fiduciaries' obligations.
+
+### The 8 Verification Points
+1. **Privacy Policy / Notice (§5):** Linked in footers, itemizes data categories, purposes, retention schedule, sub-processors, and Data Protection Board grievance options.
+2. **Affirmative Consent (§6):** Zero pre-ticked checkboxes on forms, separate marketing opt-in, 1-click withdrawal, and verifiable consent ledger records.
+3. **Grievance Redressal Officer (§8(9), §13):** Officer name, designation, email, phone number, and ticketing system with statutory acknowledgment within 24-48 hours.
+4. **Cookie & Tracker Governance:** Gated banner requiring affirmative consent prior to firing non-essential analytics/replays, with persistent settings toggle.
+5. **Terms & Conditions:** Limitations of liability, dispute resolution under designated Indian court jurisdiction (New Delhi).
+6. **Consumer Protection & Fair Trade:** Transparent pricing without hidden drip charges, clear cancellation/refund policies, zero dark patterns.
+7. **Children's Data (§9):** Verification of adult age (18+), prohibition of tracking/profiling of minors, parental consent gates.
+8. **Security Safeguards & CERT-In Reporting (§8(5), §8(6)):** HTTPS TLS 1.3, salted hash auth with MFA, immutable audit trails, written breach plan (72h DPB report, 6h CERT-In reporting).
+
