@@ -29,6 +29,13 @@ export async function runDataRetentionCleanup() {
   });
   console.log(`[Retention] Purged expired cookie consent records: ${cookieResult.deletedCount}`);
 
+  // 2b. Purge visitor analytics records older than 90 days (Statutory Data Minimization)
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const analyticsPurgeResult = await db.collection('visitor_analytics').deleteMany({
+    createdAt: { $lt: ninetyDaysAgo },
+  });
+  console.log(`[Retention] Purged expired visitor telemetry (>90d): ${analyticsPurgeResult.deletedCount}`);
+
   // 3. Anonymize closed/converted leads older than 24 months (Purpose Exhausted)
   const leadsAnonymizeResult = await db.collection('contact_leads').updateMany(
     {

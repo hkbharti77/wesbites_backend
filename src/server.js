@@ -31,6 +31,7 @@ import { getPublicCategories, getPublicTags, getBlogSitemapXmlEndpoint, getBlogR
 import { getPublicTheme } from './controllers/settings.controller.js';
 import { publicSiteMediaRoutes, adminSiteMediaRoutes } from './routes/siteMedia.routes.js';
 import { publicPrivacyRequestRoutes, adminPrivacyRequestRoutes } from './routes/privacyRequest.routes.js';
+import { publicVisitorAnalyticsRoutes, adminVisitorAnalyticsRoutes } from './routes/visitorAnalytics.routes.js';
 import { securityHeadersMiddleware } from './middleware/securityHeaders.js';
 import { generateOgImage } from './controllers/ogImage.controller.js';
 import { startScheduledPublishWorker } from './services/publisher.service.js';
@@ -66,6 +67,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:8080',
   'https://hkbharti77.github.io',
+  'https://hkbharti77.website',
+  'https://www.hkbharti77.website',
 ];
 
 // Dynamic CORS Origins governed by process.env.CORS_ORIGIN with enterprise domain defaults
@@ -164,6 +167,10 @@ app.use('/api/admin/media', mediaRoutes);
 // Cookie Consent (public record + admin management)
 app.use('/api/public/cookie-consent', cookieRoutes);
 app.use('/api/admin/cookies', cookieRoutes);
+
+// Privacy-First Visitor & Traffic Analytics (Cookieless, DPDP 2023 & GDPR Compliant)
+app.use('/api/public/analytics', publicVisitorAnalyticsRoutes);
+app.use('/api/admin/analytics', adminVisitorAnalyticsRoutes);
 
 // Newsletter & Subscribers (public subscribe/unsubscribe + admin management)
 app.use('/api/public/newsletter', newsletterRoutes);
