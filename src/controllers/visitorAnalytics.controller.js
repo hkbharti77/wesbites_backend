@@ -25,6 +25,10 @@ async function ensureAnalyticsIndexes(db) {
     await col.createIndex({ date: 1, channel: 1 });
     await col.createIndex({ countryCode: 1, createdAt: -1 });
     await col.createIndex({ visitorHash: 1, date: 1 });
+    await col.createIndex({ route: 1 });
+    await col.createIndex({ hostname: 1 });
+    await col.createIndex({ os: 1 });
+    await col.createIndex({ browser: 1 });
     // Automatic 90-day retention purge under GDPR Art. 5(1)(e) & DPDP Act 2023 §8(7)
     await col.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
     indexesEnsured = true;
@@ -35,7 +39,7 @@ async function ensureAnalyticsIndexes(db) {
 
 const ISO_COUNTRY_NAMES = {
   IN: 'India',
-  US: 'United States',
+  US: 'United States of America',
   GB: 'United Kingdom',
   CA: 'Canada',
   AU: 'Australia',
@@ -73,7 +77,7 @@ const ISO_COUNTRY_NAMES = {
   LK: 'Sri Lanka',
   NP: 'Nepal',
   RU: 'Russia',
-  CN: 'China',
+  CN: "People's Republic of China",
   HK: 'Hong Kong',
   TW: 'Taiwan',
   TH: 'Thailand',
@@ -148,12 +152,54 @@ function detectDevice(ua = '') {
 
 function detectBrowser(ua = '') {
   const s = ua.toLowerCase();
-  if (s.includes('edg/')) return 'Edge';
-  if (s.includes('chrome') && !s.includes('edg')) return 'Chrome';
-  if (s.includes('safari') && !s.includes('chrome')) return 'Safari';
-  if (s.includes('firefox')) return 'Firefox';
+  if (s.includes('mobile') && s.includes('safari') && !s.includes('chrome') && !s.includes('crios') && !s.includes('android')) {
+    return 'Mobile Safari';
+  }
+  if (s.includes('edg/') || s.includes('edge/')) return 'Edge';
+  if (s.includes('samsungbrowser')) return 'Samsung Browser';
+  if (s.includes('crios') || (s.includes('chrome') && !s.includes('edg'))) return 'Chrome';
+  if (s.includes('safari') && !s.includes('chrome') && !s.includes('crios')) return 'Safari';
+  if (s.includes('firefox') || s.includes('fxios')) return 'Firefox';
   if (s.includes('opera') || s.includes('opr')) return 'Opera';
   return 'Other';
+}
+
+function detectOS(ua = '') {
+  const s = ua.toLowerCase();
+  if (s.includes('windows nt 10.0') || s.includes('windows nt 11.0') || s.includes('windows')) return 'Windows';
+  if (s.includes('android')) return 'Android';
+  if (s.includes('iphone') || s.includes('ipad') || s.includes('ipod')) return 'iOS';
+  if (s.includes('macintosh') || s.includes('mac os x')) return 'macOS';
+  if (s.includes('cros')) return 'Chrome OS';
+  if (s.includes('linux')) return 'GNU/Linux';
+  return 'Other';
+}
+
+function deriveRoute(path = '/') {
+  if (!path || path === '/') return '/';
+  const clean = path.split('?')[0].split('#')[0].trim();
+  if (clean === '' || clean === '/') return '/';
+
+  return clean
+    .replace(/^\/blog\/[^/]+$/, '/blog/[slug]')
+    .replace(/^\/services\/[^/]+$/, '/services/[service]')
+    .replace(/^\/industries\/[^/]+$/, '/industries/[industry]')
+    .replace(/^\/pricing\/[^/]+$/, '/pricing/[tier]')
+    .replace(/^\/resources\/[^/]+$/, '/resources/[slug]')
+    .replace(/^\/guides\/[^/]+$/, '/guides/[slug]')
+    .replace(/^\/tools\/[^/]+$/, '/tools/[tool]');
+}
+
+function resolveHostname(req, body = {}, channel = 'crm') {
+  if (body.hostname && typeof body.hostname === 'string' && body.hostname.trim()) {
+    return body.hostname.replace(/:\d+$/, '').toLowerCase().slice(0, 80);
+  }
+  const raw = req.headers['x-forwarded-host'] || req.headers.host || '';
+  const clean = raw.split(',')[0].trim().replace(/:\d+$/, '').toLowerCase();
+  if (clean && !clean.includes('api-cms') && !clean.includes('wesbites_backend') && clean !== 'localhost') {
+    return clean;
+  }
+  return channel === 'portfolio' ? 'hkbharti77.website' : 'www.gyanvaniai.com';
 }
 
 /* ── POST /api/public/analytics/hit ────────────────────────────────────────── */
@@ -168,6 +214,12 @@ export async function recordVisitorHit(req, res) {
       consent = false,
       countryCode: clientCountryCode,
       countryName: clientCountryName,
+      hostname: clientHostname,
+      utmSource: clientUtmSource,
+      utmMedium: clientUtmMedium,
+      utmCampaign: clientUtmCampaign,
+      event: clientEvent,
+      flag: clientFlag,
     } = req.body || {};
 
     const db = getDb();
@@ -196,16 +248,38 @@ export async function recordVisitorHit(req, res) {
       countryName: clientCountryName,
     });
 
+    const cleanPath = sanitizePath(reqPath);
+    const resolvedRoute = deriveRoute(cleanPath);
+    const resolvedHostname = resolveHostname(req, { hostname: clientHostname }, resolvedChannel);
+    const resolvedOS = detectOS(ua);
+    const resolvedBrowser = detectBrowser(ua);
+    const resolvedEvent = typeof clientEvent === 'string' && clientEvent.trim() ? clientEvent.slice(0, 50) : 'pageview';
+    const resolvedFlag = typeof clientFlag === 'string' && clientFlag.trim()
+      ? clientFlag.slice(0, 50)
+      : (consent ? 'consent_granted' : 'consent_essential');
+
+    const utmSource = clientUtmSource ? String(clientUtmSource).slice(0, 50) : null;
+    const utmMedium = clientUtmMedium ? String(clientUtmMedium).slice(0, 50) : null;
+    const utmCampaign = clientUtmCampaign ? String(clientUtmCampaign).slice(0, 50) : null;
+
     const hitDoc = {
-      path: sanitizePath(reqPath),
+      path: cleanPath,
+      route: resolvedRoute,
+      hostname: resolvedHostname,
       title: typeof title === 'string' ? title.slice(0, 120) : null,
       referrer: sanitizeReferrer(referrer),
       device: ['mobile', 'tablet', 'desktop'].includes(clientDevice) ? clientDevice : detectDevice(ua),
-      browser: detectBrowser(ua),
+      browser: resolvedBrowser,
+      os: resolvedOS,
       channel: resolvedChannel,
       countryCode,
       country,
       consent: Boolean(consent),
+      event: resolvedEvent,
+      flag: resolvedFlag,
+      utmSource,
+      utmMedium,
+      utmCampaign,
       visitorHash,
       date: dateKey,
       createdAt: now,
@@ -455,28 +529,180 @@ export async function getVisitorAnalyticsOverview(req, res) {
       { $match: currentFilter },
       { $group: { _id: '$path', views: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
       { $project: { path: '$_id', views: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
-      { $sort: { views: -1 } },
+      { $sort: { views: -1, visitors: -1 } },
       { $limit: 12 },
     ]).toArray();
 
-    // 6. Top Referrers (within current timeframe filter)
+    // 6. Routes (Parameterized path templates)
+    const topRoutes = await col.aggregate([
+      { $match: currentFilter },
+      {
+        $project: {
+          route: { $ifNull: ['$route', '$path'] },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$route', views: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { route: '$_id', views: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { views: -1, visitors: -1 } },
+      { $limit: 10 },
+    ]).toArray();
+
+    // 7. Hostnames
+    const topHostnames = await col.aggregate([
+      { $match: currentFilter },
+      {
+        $project: {
+          hostname: {
+            $ifNull: [
+              '$hostname',
+              { $cond: [{ $eq: ['$channel', 'portfolio'] }, 'hkbharti77.website', 'www.gyanvaniai.com'] },
+            ],
+          },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$hostname', views: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { hostname: '$_id', views: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { views: -1, visitors: -1 } },
+      { $limit: 10 },
+    ]).toArray();
+
+    // 8. Top Referrers
     const topReferrers = await col.aggregate([
       { $match: currentFilter },
-      { $group: { _id: '$referrer', count: { $sum: 1 } } },
-      { $project: { referrer: '$_id', count: 1, _id: 0 } },
-      { $sort: { count: -1 } },
-      { $limit: 8 },
+      { $group: { _id: '$referrer', count: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { referrer: '$_id', count: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { count: -1, visitors: -1 } },
+      { $limit: 10 },
     ]).toArray();
 
-    // 7. Device Breakdown
-    const deviceBreakdown = await col.aggregate([
+    // 9. UTM Parameters
+    const topUtm = await col.aggregate([
+      {
+        $match: {
+          ...currentFilter,
+          $or: [
+            { utmSource: { $exists: true, $ne: null } },
+            { utmCampaign: { $exists: true, $ne: null } },
+          ],
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $concat: [
+              { $ifNull: ['$utmSource', 'direct'] },
+              ' / ',
+              { $ifNull: ['$utmCampaign', 'organic'] },
+            ],
+          },
+          count: { $sum: 1 },
+          uniqueVisitors: { $addToSet: '$visitorHash' },
+        },
+      },
+      { $project: { utm: '$_id', count: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]).toArray();
+
+    // 10. Device Breakdown
+    const deviceAgg = await col.aggregate([
       { $match: currentFilter },
-      { $group: { _id: '$device', count: { $sum: 1 } } },
-      { $project: { device: '$_id', count: 1, _id: 0 } },
-      { $sort: { count: -1 } },
+      {
+        $project: {
+          device: { $ifNull: ['$device', 'desktop'] },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$device', count: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { device: '$_id', count: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { visitors: -1, count: -1 } },
     ]).toArray();
 
-    // 8. Consent Rate
+    const devices = deviceAgg.map((d) => ({
+      name: d.device || 'desktop',
+      visitors: d.visitors,
+      count: d.count,
+      percentage: activeVisitorsCount > 0 ? Number(((d.visitors / activeVisitorsCount) * 100).toFixed(0)) : 0,
+    }));
+
+    // 11. Browser Breakdown
+    const browserAgg = await col.aggregate([
+      { $match: currentFilter },
+      {
+        $project: {
+          browser: { $ifNull: ['$browser', 'Chrome'] },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$browser', count: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { browser: '$_id', count: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { visitors: -1, count: -1 } },
+    ]).toArray();
+
+    const browsers = browserAgg.map((b) => ({
+      name: b.browser || 'Other',
+      visitors: b.visitors,
+      count: b.count,
+      percentage: activeVisitorsCount > 0 ? Number(((b.visitors / activeVisitorsCount) * 100).toFixed(0)) : 0,
+    }));
+
+    // 12. Operating Systems Breakdown
+    const osAgg = await col.aggregate([
+      { $match: currentFilter },
+      {
+        $project: {
+          os: { $ifNull: ['$os', 'Windows'] },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$os', count: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { os: '$_id', count: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { visitors: -1, count: -1 } },
+    ]).toArray();
+
+    const operatingSystems = osAgg.map((o) => ({
+      name: o.os || 'Windows',
+      visitors: o.visitors,
+      count: o.count,
+      percentage: activeVisitorsCount > 0 ? Number(((o.visitors / activeVisitorsCount) * 100).toFixed(0)) : 0,
+    }));
+
+    // 13. Events Telemetry
+    const eventAgg = await col.aggregate([
+      { $match: currentFilter },
+      {
+        $project: {
+          event: { $ifNull: ['$event', 'pageview'] },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$event', total: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { name: '$_id', total: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { total: -1, visitors: -1 } },
+    ]).toArray();
+
+    // 14. Flags Telemetry
+    const flagAgg = await col.aggregate([
+      { $match: currentFilter },
+      {
+        $project: {
+          flag: {
+            $ifNull: [
+              '$flag',
+              { $cond: ['$consent', 'consent_granted', 'consent_essential'] },
+            ],
+          },
+          visitorHash: 1,
+        },
+      },
+      { $group: { _id: '$flag', total: { $sum: 1 }, uniqueVisitors: { $addToSet: '$visitorHash' } } },
+      { $project: { name: '$_id', total: 1, visitors: { $size: '$uniqueVisitors' }, _id: 0 } },
+      { $sort: { total: -1, visitors: -1 } },
+    ]).toArray();
+
+    // 15. Consent Rate
     const consentCounts = await col.aggregate([
       { $match: currentFilter },
       { $group: { _id: '$consent', count: { $sum: 1 } } },
@@ -525,9 +751,21 @@ export async function getVisitorAnalyticsOverview(req, res) {
       },
       trend,
       topCountries,
+      // Tabbed Panels Telemetry
+      pages: topPages,
+      routes: topRoutes,
+      hostnames: topHostnames,
+      referrers: topReferrers,
+      utmParameters: topUtm,
+      devices,
+      browsers,
+      operatingSystems,
+      events: eventAgg,
+      flags: flagAgg,
+      // Backwards compatibility aliases
       topPages,
       topReferrers,
-      deviceBreakdown,
+      deviceBreakdown: devices.map((d) => ({ device: d.name, count: d.count })),
       externalTools: {
         ga4: {
           name: 'Google Analytics 4',
