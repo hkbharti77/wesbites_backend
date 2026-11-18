@@ -85,13 +85,15 @@ function resolveCountry(req, body = {}) {
     req.headers['cf-ipcountry'] ||
     req.headers['x-country-code'] ||
     req.headers['x-vercel-ip-country'] ||
+    req.headers['cloudfront-viewer-country'] ||
+    req.headers['x-appengine-country'] ||
     body.countryCode ||
     body.country ||
     ''
   ).toString().trim().toUpperCase();
 
   const code = (codeRaw && codeRaw !== 'XX' && codeRaw !== 'T1' && codeRaw.length === 2) ? codeRaw : 'Unknown';
-  const name = ISO_COUNTRY_NAMES[code] || (body.countryName ? String(body.countryName).slice(0, 50) : (code === 'Unknown' ? 'Unknown' : code));
+  const name = ISO_COUNTRY_NAMES[code] || (body.countryName && body.countryName !== 'Unknown' && body.countryName !== 'Global' ? String(body.countryName).slice(0, 50) : (code === 'Unknown' ? 'Unknown' : code));
   return { countryCode: code, country: name };
 }
 
